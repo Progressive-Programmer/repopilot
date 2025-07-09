@@ -43,7 +43,10 @@ export function RepoView({ repo }: { repo: Repository }) {
                     const errorData = await res.json().catch(() => ({ message: 'Failed to fetch repository contents.' }));
                     throw new Error(errorData.message);
                 }
-                const data = await res.json();
+                const { data } = await res.json();
+                if (!Array.isArray(data)) {
+                    throw new Error("Invalid data format received from API.");
+                }
                 const nodes: FileSystemNode[] = data.map((item: any) => ({
                     name: item.name,
                     path: item.path,
@@ -80,7 +83,7 @@ export function RepoView({ repo }: { repo: Repository }) {
                 const errorData = await res.json().catch(() => null);
                 throw new Error(errorData?.message || 'Failed to fetch file content.');
             }
-            const data = await res.json();
+            const { data } = await res.json();
             if (data.encoding === 'base64' && data.content) {
                 const content = atob(data.content);
                 setSelectedFile({ ...file, content, language: file.language || 'plaintext' });
@@ -97,7 +100,12 @@ export function RepoView({ repo }: { repo: Repository }) {
         try {
             const res = await fetch(`/api/github/repos/${repo.full_name}/contents/${folderPath}`);
             if (!res.ok) throw new Error('Failed to fetch folder content');
-            const data = await res.json();
+            const { data } = await res.json();
+             if (!Array.isArray(data)) {
+                console.error("Folder content is not an array:", data);
+                // Optionally set an error state for this specific folder
+                return;
+            }
             const children: FileSystemNode[] = data.map((item: any) => ({
                 name: item.name,
                 path: item.path,
