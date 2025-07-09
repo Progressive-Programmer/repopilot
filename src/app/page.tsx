@@ -2,7 +2,7 @@
 "use client";
 
 import { useState, useEffect } from 'react';
-import { useSession, signIn } from "next-auth/react";
+import { useSession, signIn, type Session } from "next-auth/react";
 import { Github, GitBranch, ArrowLeft, Loader2, AlertTriangle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
@@ -127,12 +127,17 @@ const UnauthenticatedView = () => (
     </div>
 );
 
-const RepoDashboard = ({ onSelectRepo }: { onSelectRepo: (repo: Repository) => void }) => {
+const RepoDashboard = ({ onSelectRepo, session }: { onSelectRepo: (repo: Repository) => void, session: Session | null }) => {
     const [repos, setRepos] = useState<Repository[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
     useEffect(() => {
+        if (!session) {
+            setLoading(false);
+            return;
+        }
+
         async function fetchRepos() {
             setLoading(true);
             setError(null);
@@ -154,7 +159,7 @@ const RepoDashboard = ({ onSelectRepo }: { onSelectRepo: (repo: Repository) => v
             }
         }
         fetchRepos();
-    }, []);
+    }, [session]);
 
     if (loading) {
         return (
@@ -311,7 +316,7 @@ export default function Home() {
         );
     }
     
-    if (status === "unauthenticated") {
+    if (status === "unauthenticated" || !session) {
         return <UnauthenticatedView />;
     }
 
@@ -319,5 +324,5 @@ export default function Home() {
         return <RepoView repo={selectedRepo} onBack={() => setSelectedRepo(null)} />;
     }
 
-    return <RepoDashboard onSelectRepo={setSelectedRepo} />;
+    return <RepoDashboard onSelectRepo={setSelectedRepo} session={session} />;
 }
