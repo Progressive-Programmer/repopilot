@@ -149,7 +149,7 @@ const RepoDashboard = ({ session, onSelectRepo }: { session: Session | null, onS
                                 </CardDescription>
                             </CardHeader>
                             <CardFooter>
-                                <Button variant="secondary" size="sm" className="w-full" onClick={() => onSelectRepo(repo)}>
+                                <Button variant="outline" size="sm" className="w-full" onClick={() => onSelectRepo(repo)}>
                                     <Code className="mr-2 h-4 w-4" />
                                     Explore Code
                                 </Button>

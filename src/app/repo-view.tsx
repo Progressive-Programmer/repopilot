@@ -15,49 +15,46 @@ import {
 
 // Helper function to build the file tree from a flat list of paths
 const buildFileTree = (paths: { path: string; type: 'blob' | 'tree'; url: string; sha: string }[]): FileSystemNode[] => {
-    const rootNodes: { [name: string]: FileSystemNode } = {};
     const nodeMap: { [path: string]: FileSystemNode } = {};
 
-    // Sort paths to process directories before files within them
+    // Sort paths to ensure parent directories are created before their children
     paths.sort((a, b) => a.path.localeCompare(b.path));
 
     for (const item of paths) {
-        const parts = item.path.split('/');
-        const name = parts[parts.length - 1];
-        const parentPath = parts.slice(0, -1).join('/');
-
         let newNode: FileSystemNode;
-
         if (item.type === 'tree') {
             newNode = {
-                name,
+                name: item.path.split('/').pop()!,
                 path: item.path,
                 type: 'folder',
                 children: [],
                 url: item.url,
                 sha: item.sha,
             };
-        } else { // 'blob'
+        } else { // blob
             newNode = {
-                name,
+                name: item.path.split('/').pop()!,
                 path: item.path,
                 type: 'file',
                 content: '', // Fetched on demand
-                language: name.split('.').pop() || 'plaintext',
+                language: item.path.split('.').pop() || 'plaintext',
                 url: item.url,
                 sha: item.sha,
             };
         }
-
         nodeMap[item.path] = newNode;
+    }
 
-        if (parentPath) {
+    const rootNodes: FileSystemNode[] = [];
+    for (const item of paths) {
+        const parentPath = item.path.substring(0, item.path.lastIndexOf('/'));
+        if (parentPath && nodeMap[parentPath]) {
             const parent = nodeMap[parentPath] as Folder;
-            if (parent && parent.type === 'folder') {
-                parent.children.push(newNode);
+            if (parent.type === 'folder') {
+                parent.children.push(nodeMap[item.path]);
             }
         } else {
-            rootNodes[name] = newNode;
+            rootNodes.push(nodeMap[item.path]);
         }
     }
     
@@ -72,15 +69,14 @@ const buildFileTree = (paths: { path: string; type: 'blob' | 'tree'; url: string
         }
     };
     
-    const finalTree = Object.values(rootNodes);
-    finalTree.forEach(sortChildren);
-    finalTree.sort((a, b) => {
+    rootNodes.forEach(sortChildren);
+    rootNodes.sort((a, b) => {
         if (a.type === 'folder' && b.type !== 'folder') return -1;
         if (a.type !== 'folder' && b.type === 'folder') return 1;
         return a.name.localeCompare(b.name);
     });
 
-    return finalTree;
+    return rootNodes;
 };
 
 
@@ -97,7 +93,6 @@ export function RepoView({ repo }: { repo: Repository }) {
             setFiles([]);
             setSelectedFile(null);
             try {
-                // IMPORTANT: Added `recursive=1` to fetch the entire tree
                 const res = await fetch(`/api/github/repos/${repo.full_name}/git/trees/${repo.default_branch}?recursive=1`);
                 if (!res.ok) {
                     const errorData = await res.json().catch(() => ({ message: 'Failed to fetch repository tree.' }));
@@ -107,7 +102,6 @@ export function RepoView({ repo }: { repo: Repository }) {
                  if (data.truncated) {
                     console.warn("File tree is truncated. Some files may not be shown.");
                 }
-                // Filter out non-blob/tree types (like 'commit' for submodules)
                 const relevantItems = data.tree.filter((item: any) => item.type === 'blob' || item.type === 'tree');
                 const tree = buildFileTree(relevantItems);
                 setFiles(tree);
@@ -126,7 +120,6 @@ export function RepoView({ repo }: { repo: Repository }) {
             return;
         }
 
-        // Show loader immediately for better UX
         setSelectedFile({ ...file, content: '' });
 
         try {
