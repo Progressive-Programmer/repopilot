@@ -24,7 +24,10 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
     },
     async session({ session, token }) {
       // Send properties to the client, like an access_token from a provider.
-      if (session?.user) {
+      // The session object is what the client-side useSession hook receives.
+      // By default, for security reasons, only a subset of the token is exposed to the client.
+      // We need to explicitly pass the accessToken.
+      if (session.user) {
         (session as any).accessToken = token.accessToken;
       }
       return session;
