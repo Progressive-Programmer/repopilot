@@ -15,62 +15,145 @@ import {
 
 // Helper function to build the file tree from a flat list of paths
 const buildFileTree = (paths: { path: string; type: 'blob' | 'tree'; url: string; sha: string }[]): FileSystemNode[] => {
-    const root: { [key: string]: any } = {};
+    const fileTree: any = {};
 
-    paths.forEach(item => {
+    // Sort paths to ensure parent directories are processed before their children
+    const sortedPaths = paths.sort((a, b) => a.path.localeCompare(b.path));
+
+    for (const item of sortedPaths) {
         const parts = item.path.split('/');
-        let currentLevel = root;
+        let currentLevel = fileTree;
 
-        parts.forEach((part, index) => {
-            if (!currentLevel[part]) {
-                const isFile = item.type === 'blob' && index === parts.length - 1;
-                currentLevel[part] = isFile
-                    ? {
-                          name: part,
-                          path: item.path,
-                          type: 'file',
-                          language: part.split('.').pop() || 'plaintext',
-                          content: '', // Content will be fetched on demand
-                          url: item.url,
-                          sha: item.sha,
-                      }
-                    : {
-                          name: part,
-                          path: parts.slice(0, index + 1).join('/'),
-                          type: 'folder',
-                          children: {},
-                          url: '', // Folders created implicitly don't have a URL/SHA
-                          sha: '',
-                      };
-            }
-            // If it's an explicit tree object from GitHub, update its URL/SHA
-            if (item.type === 'tree' && item.path === currentLevel[part].path) {
-                currentLevel[part].url = item.url;
-                currentLevel[part].sha = item.sha;
-            }
-            if (currentLevel[part].type === 'folder') {
-                currentLevel = currentLevel[part].children;
-            }
-        });
-    });
+        for (let i = 0; i < parts.length; i++) {
+            const part = parts[i];
+            const isLastPart = i === parts.length - 1;
 
-    const convertToList = (currentLevel: any): FileSystemNode[] => {
-        return Object.values(currentLevel)
-            .map((node: any) => {
-                if (node.type === 'folder') {
-                    // Recursively convert children and assign to the node
-                    node.children = convertToList(node.children);
+            if (isLastPart) {
+                if (item.type === 'blob') { // It's a file
+                     currentLevel[part] = {
+                        name: part,
+                        path: item.path,
+                        type: 'file',
+                        language: part.split('.').pop() || 'plaintext',
+                        content: '', // Content will be fetched on demand
+                        url: item.url,
+                        sha: item.sha,
+                    };
+                } else { // It's a folder (tree)
+                    if (!currentLevel[part]) {
+                         currentLevel[part] = {
+                            name: part,
+                            path: item.path,
+                            type: 'folder',
+                            children: [],
+                            url: item.url,
+                            sha: item.sha,
+                        };
+                    }
                 }
-                return node;
-            })
-            .sort((a, b) => {
-                if (a.type === 'folder' && b.type !== 'folder') return -1;
-                if (a.type !== 'folder' && b.type === 'folder') return 1;
-                return a.name.localeCompare(b.name);
-            });
+            } else { // It's a directory path part
+                if (!currentLevel[part]) {
+                     currentLevel[part] = {
+                        name: part,
+                        path: parts.slice(0, i + 1).join('/'),
+                        type: 'folder',
+                        children: [], // Initialize children as an array
+                        url: '',
+                        sha: '',
+                     };
+                }
+                 // Convert children object to array if it's not already
+                if (!Array.isArray(currentLevel[part].children)) {
+                   currentLevel[part].children = Object.values(currentLevel[part].children);
+                }
+                
+                // Find the child to traverse into
+                let childNode = currentLevel[part].children.find((c: any) => c.name === parts[i+1]);
+                if(!childNode) {
+                    currentLevel = currentLevel[part].children;
+                } else {
+                    currentLevel = childNode;
+                }
+            }
+        }
+    }
+    
+    // Convert the tree object to an array of nodes for the root level
+    const convertToNodeArray = (obj: any): FileSystemNode[] => {
+        return Object.values(obj).sort((a: any, b: any) => {
+             if (a.type === 'folder' && b.type !== 'folder') return -1;
+             if (a.type !== 'folder' && b.type === 'folder') return 1;
+             return a.name.localeCompare(b.name);
+        });
     };
 
-    return convertToList(root);
+    // Recursive function to convert children objects to arrays
+    const finalizeTree = (nodes: FileSystemNode[]) => {
+        for (const node of nodes) {
+            if (node.type === 'folder' && !Array.isArray(node.children)) {
+                node.children = convertToNodeArray(node.children);
+                finalizeTree(node.children);
+            }
+        }
+    };
+    
+    const rootNodes = convertToNodeArray(fileTree);
+    finalizeTree(rootNodes);
+    
+    // A final pass to fix the children structure.
+    // The previous logic had issues with converting object-based children to arrays recursively.
+    const finalTree: { [key: string]: FileSystemNode } = {};
+
+    for (const item of sortedPaths) {
+      let currentPath = '';
+      let parent: any = finalTree;
+
+      item.path.split('/').forEach((part, index, arr) => {
+        currentPath = currentPath ? `${currentPath}/${part}` : part;
+        const isFile = item.type === 'blob' && index === arr.length - 1;
+
+        if (!parent[part]) {
+          if (isFile) {
+            parent[part] = {
+              name: part,
+              path: item.path,
+              type: 'file',
+              language: part.split('.').pop() || 'plaintext',
+              content: '',
+              url: item.url,
+              sha: item.sha,
+            };
+          } else {
+             parent[part] = {
+                name: part,
+                path: currentPath,
+                type: 'folder',
+                children: {},
+                url: item.url,
+                sha: item.sha,
+            };
+          }
+        }
+        if (parent[part].type === 'folder') {
+            parent = parent[part].children;
+        }
+      });
+    }
+
+    const convertObjectToArray = (node: any): FileSystemNode[] => {
+        return Object.values(node).map((child: any) => {
+            if(child.type === 'folder') {
+                child.children = convertObjectToArray(child.children);
+            }
+            return child;
+        }).sort((a,b) => {
+            if (a.type === 'folder' && b.type !== 'folder') return -1;
+            if (a.type !== 'folder' && b.type === 'folder') return 1;
+            return a.name.localeCompare(b.name);
+        });
+    }
+
+    return convertObjectToArray(finalTree);
 };
 
 
