@@ -1,17 +1,17 @@
 
 "use client";
 
-import { useState, useTransition, useEffect } from 'react';
+import { useState, useTransition, useEffect, useRef } from 'react';
 import { useTheme } from 'next-themes';
 import { runCodeReview } from '@/app/actions';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Wand2, Loader2, BotMessageSquare, FileCode } from 'lucide-react';
+import { Wand2, Loader2, BotMessageSquare, FileCode, Braces } from 'lucide-react';
 import type { File as FileType } from '@/app/page';
 import { useToast } from '@/hooks/use-toast';
-import Editor from '@monaco-editor/react';
+import Editor, { type OnMount } from '@monaco-editor/react';
 import {
   ResizableHandle,
   ResizablePanel,
@@ -92,6 +92,17 @@ const ReviewPanel = ({ file }: { file: FileType }) => {
 
 export function EditorView({ selectedFile }: EditorViewProps) {
   const { theme } = useTheme();
+  const editorRef = useRef<any>(null);
+
+  const handleEditorDidMount: OnMount = (editor, monaco) => {
+    editorRef.current = editor;
+  };
+
+  const handleFormatCode = () => {
+    if (editorRef.current) {
+      editorRef.current.getAction('editor.action.formatDocument').run();
+    }
+  };
 
   if (!selectedFile) {
     return (
@@ -114,22 +125,37 @@ export function EditorView({ selectedFile }: EditorViewProps) {
   return (
     <ResizablePanelGroup direction="horizontal" className="h-full">
       <ResizablePanel defaultSize={75}>
-        <Editor
-          height="100%"
-          language={selectedFile.language}
-          value={selectedFile.content}
-          theme={theme === 'dark' ? 'vs-dark' : 'vs-light'}
-          options={{
-            readOnly: true,
-            domReadOnly: true,
-            minimap: { enabled: true },
-            scrollBeyondLastLine: false,
-            fontFamily: "var(--font-code)",
-          }}
-        />
+        <div className="flex flex-col h-full">
+          <div className="flex items-center justify-between px-4 py-2 border-b bg-muted/50 h-14 shrink-0">
+             <div className="font-mono text-sm">{selectedFile.name}</div>
+             <Button variant="ghost" size="sm" onClick={handleFormatCode}>
+                <Braces className="mr-2 h-4 w-4" />
+                Format Code
+             </Button>
+          </div>
+          <div className="flex-1 overflow-hidden">
+            <Editor
+              height="100%"
+              path={selectedFile.path}
+              language={selectedFile.language}
+              defaultValue={selectedFile.content}
+              theme={theme === 'dark' ? 'vs-dark' : 'vs-light'}
+              onMount={handleEditorDidMount}
+              options={{
+                readOnly: true,
+                domReadOnly: true,
+                wordWrap: 'on',
+                minimap: { enabled: true },
+                scrollBeyondLastLine: false,
+                fontFamily: "var(--font-code)",
+                automaticLayout: true,
+              }}
+            />
+          </div>
+        </div>
       </ResizablePanel>
       <ResizableHandle withHandle />
-      <ResizablePanel defaultSize={25}>
+      <ResizablePanel defaultSize={25} minSize={20}>
         <ReviewPanel file={selectedFile} />
       </ResizablePanel>
     </ResizablePanelGroup>
