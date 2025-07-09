@@ -36,19 +36,19 @@
   }
 
   .dark {
-    --background: 222 47% 11%; /* #111827 */
+    --background: 224 71% 4%; /* #080918 */
     --foreground: 210 40% 98%; /* #F8FAFC */
     
-    --card: 222 40% 16%; /* #1E293B */
+    --card: 225 31% 12%; /* #151829 */
     --card-foreground: 210 40% 98%;
     
     --popover: 222 47% 11%;
     --popover-foreground: 210 40% 98%;
     
-    --primary: 217 91% 60%; /* #3B82F6 - VS Code Blue */
+    --primary: 217 91% 60%; /* #3B82F6 */
     --primary-foreground: 0 0% 98%;
     
-    --secondary: 215 28% 17%; /* #273042 */
+    --secondary: 224 71% 4%; /* #080918 - same as background for a solid look */
     --secondary-foreground: 210 40% 98%;
     
     --muted: 215 28% 17%;
@@ -60,7 +60,7 @@
     --destructive: 0 63% 51%; /* #DC2626 */
     --destructive-foreground: 0 0% 98%;
     
-    --border: 215 28% 25%; /* #334155 */
+    --border: 224 18% 22%; /* #2E3348 */
     --input: 215 28% 25%;
     --ring: 217 91% 60%;
   }
