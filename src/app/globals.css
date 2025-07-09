@@ -36,32 +36,32 @@
   }
 
   .dark {
-    --background: 222 28% 14%; /* #1A202C */
+    --background: 222 47% 11%; /* #111827 */
     --foreground: 210 40% 98%; /* #F8FAFC */
     
-    --card: 220 20% 23%; /* #2D3748 */
+    --card: 222 40% 16%; /* #1E293B */
     --card-foreground: 210 40% 98%;
     
-    --popover: 222 28% 14%;
+    --popover: 222 47% 11%;
     --popover-foreground: 210 40% 98%;
     
     --primary: 217 91% 60%; /* #3B82F6 - VS Code Blue */
     --primary-foreground: 0 0% 98%;
     
-    --secondary: 220 20% 23%;
+    --secondary: 215 28% 17%; /* #273042 */
     --secondary-foreground: 210 40% 98%;
     
-    --muted: 220 20% 23%;
-    --muted-foreground: 215 28% 45%; /* #64748B */
+    --muted: 215 28% 17%;
+    --muted-foreground: 215 20% 65%; /* #94A3B8 */
     
-    --accent: 220 20% 23%;
+    --accent: 215 28% 17%;
     --accent-foreground: 210 40% 98%;
     
     --destructive: 0 63% 51%; /* #DC2626 */
     --destructive-foreground: 0 0% 98%;
     
-    --border: 220 15% 33%; /* #4A5568 */
-    --input: 220 15% 33%;
+    --border: 215 28% 25%; /* #334155 */
+    --input: 215 28% 25%;
     --ring: 217 91% 60%;
   }
 
