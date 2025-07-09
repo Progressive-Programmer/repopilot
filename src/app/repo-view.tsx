@@ -15,13 +15,13 @@ import {
 
 // Helper function to build the file tree from a flat list of paths
 const buildFileTree = (paths: { path: string; type: 'blob' | 'tree'; url: string; sha: string }[]): FileSystemNode[] => {
-    const root: FileSystemNode[] = [];
+    const rootNodes: { [name: string]: FileSystemNode } = {};
     const nodeMap: { [path: string]: FileSystemNode } = {};
 
-    // Sort paths by depth to ensure parent directories are created before children
-    paths.sort((a, b) => a.path.split('/').length - b.path.split('/').length);
+    // Sort paths to process directories before files within them
+    paths.sort((a, b) => a.path.localeCompare(b.path));
 
-    paths.forEach(item => {
+    for (const item of paths) {
         const parts = item.path.split('/');
         const name = parts[parts.length - 1];
         const parentPath = parts.slice(0, -1).join('/');
@@ -57,11 +57,10 @@ const buildFileTree = (paths: { path: string; type: 'blob' | 'tree'; url: string
                 parent.children.push(newNode);
             }
         } else {
-            root.push(newNode);
+            rootNodes[name] = newNode;
         }
-    });
-
-    // Recursively sort all children arrays
+    }
+    
     const sortChildren = (node: FileSystemNode) => {
         if (node.type === 'folder' && node.children.length > 0) {
             node.children.forEach(sortChildren);
@@ -73,15 +72,17 @@ const buildFileTree = (paths: { path: string; type: 'blob' | 'tree'; url: string
         }
     };
     
-    root.forEach(sortChildren);
-    root.sort((a, b) => {
+    const finalTree = Object.values(rootNodes);
+    finalTree.forEach(sortChildren);
+    finalTree.sort((a, b) => {
         if (a.type === 'folder' && b.type !== 'folder') return -1;
         if (a.type !== 'folder' && b.type === 'folder') return 1;
         return a.name.localeCompare(b.name);
     });
 
-    return root;
+    return finalTree;
 };
+
 
 export function RepoView({ repo }: { repo: Repository }) {
     const [files, setFiles] = useState<FileSystemNode[]>([]);
