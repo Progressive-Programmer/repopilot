@@ -13,49 +13,40 @@ import {
   ResizablePanelGroup,
 } from "@/components/ui/resizable";
 
-// Helper function to build the file tree
-const buildFileTree = (paths: any[]): FileSystemNode[] => {
-    const tree: { [key: string]: any } = {};
+// Helper function to build the file tree from a flat list of paths
+const buildFileTree = (paths: { path: string; type: 'blob' | 'tree'; url: string; sha: string }[]): FileSystemNode[] => {
+    const root: { [key: string]: any } = {};
 
-    const items = paths
-      .filter(item => item.type === 'blob' || item.type === 'tree')
-      .map(item => ({ ...item, parts: item.path.split('/') }));
+    paths.forEach(item => {
+        const parts = item.path.split('/');
+        let currentLevel = root;
 
-    items.sort((a, b) => a.path.localeCompare(b.path));
-
-    items.forEach(item => {
-        let currentLevel = tree;
-        item.parts.forEach((part: string, index: number) => {
+        parts.forEach((part, index) => {
             if (!currentLevel[part]) {
-                if (item.type === 'tree' && index === item.parts.length - 1) {
-                     currentLevel[part] = {
-                        name: part,
-                        path: item.path,
-                        type: 'folder',
-                        children: {},
-                        url: item.url,
-                        sha: item.sha,
-                    };
-                } else if (item.type === 'blob' && index === item.parts.length - 1) {
-                    currentLevel[part] = {
-                        name: part,
-                        path: item.path,
-                        type: 'file',
-                        language: part.split('.').pop() || 'plaintext',
-                        content: '', // Content will be fetched on demand
-                        url: item.url,
-                        sha: item.sha,
-                    };
-                } else {
-                     currentLevel[part] = {
-                        name: part,
-                        path: item.parts.slice(0, index + 1).join('/'),
-                        type: 'folder',
-                        children: {},
-                        url: '',
-                        sha: '',
-                    };
-                }
+                const isFile = item.type === 'blob' && index === parts.length - 1;
+                currentLevel[part] = isFile
+                    ? {
+                          name: part,
+                          path: item.path,
+                          type: 'file',
+                          language: part.split('.').pop() || 'plaintext',
+                          content: '', // Content will be fetched on demand
+                          url: item.url,
+                          sha: item.sha,
+                      }
+                    : {
+                          name: part,
+                          path: parts.slice(0, index + 1).join('/'),
+                          type: 'folder',
+                          children: {},
+                          url: '', // Folders created implicitly don't have a URL/SHA
+                          sha: '',
+                      };
+            }
+            // If it's an explicit tree object from GitHub, update its URL/SHA
+            if (item.type === 'tree' && item.path === currentLevel[part].path) {
+                currentLevel[part].url = item.url;
+                currentLevel[part].sha = item.sha;
             }
             if (currentLevel[part].type === 'folder') {
                 currentLevel = currentLevel[part].children;
@@ -64,19 +55,22 @@ const buildFileTree = (paths: any[]): FileSystemNode[] => {
     });
 
     const convertToList = (currentLevel: any): FileSystemNode[] => {
-        return Object.values(currentLevel).map((node: any) => {
-            if (node.type === 'folder') {
-                return { ...node, children: convertToList(node.children) };
-            }
-            return node;
-        }).sort((a, b) => {
-            if (a.type === 'folder' && b.type !== 'folder') return -1;
-            if (a.type !== 'folder' && b.type === 'folder') return 1;
-            return a.name.localeCompare(b.name);
-        });
+        return Object.values(currentLevel)
+            .map((node: any) => {
+                if (node.type === 'folder') {
+                    // Recursively convert children and assign to the node
+                    node.children = convertToList(node.children);
+                }
+                return node;
+            })
+            .sort((a, b) => {
+                if (a.type === 'folder' && b.type !== 'folder') return -1;
+                if (a.type !== 'folder' && b.type === 'folder') return 1;
+                return a.name.localeCompare(b.name);
+            });
     };
 
-    return convertToList(tree);
+    return convertToList(root);
 };
 
 
@@ -91,6 +85,7 @@ export function RepoView({ repo }: { repo: Repository }) {
             setLoading(true);
             setError(null);
             try {
+                // IMPORTANT: Added `recursive=1` to fetch the entire tree
                 const res = await fetch(`/api/github/repos/${repo.full_name}/git/trees/${repo.default_branch}?recursive=1`);
                 if (!res.ok) {
                     const errorData = await res.json().catch(() => ({ message: 'Failed to fetch repository tree.' }));
@@ -100,7 +95,9 @@ export function RepoView({ repo }: { repo: Repository }) {
                  if (data.truncated) {
                     console.warn("File tree is truncated. Some files may not be shown.");
                 }
-                const tree = buildFileTree(data.tree);
+                // Filter out non-blob/tree types (like 'commit' for submodules)
+                const relevantItems = data.tree.filter((item: any) => item.type === 'blob' || item.type === 'tree');
+                const tree = buildFileTree(relevantItems);
                 setFiles(tree);
             } catch (err: any) {
                 setError(err.message || 'An unexpected error occurred.');
@@ -117,23 +114,25 @@ export function RepoView({ repo }: { repo: Repository }) {
             return;
         }
 
+        // Show loader immediately for better UX
         setSelectedFile({ ...file, content: '' });
 
         try {
             const res = await fetch(`/api/github/repos/${repo.full_name}/contents/${file.path}`);
             if (!res.ok) {
-                throw new Error('Failed to fetch file content.');
+                const errorData = await res.json().catch(() => null);
+                throw new Error(errorData?.message || 'Failed to fetch file content.');
             }
             const data = await res.json();
-            if (data.content) {
+            if (data.encoding === 'base64' && data.content) {
                 const content = atob(data.content);
                 setSelectedFile({ ...file, content, language: file.language || 'plaintext' });
             } else {
                  setSelectedFile({ ...file, content: 'File content is not available or file is empty.' });
             }
-        } catch (err) {
+        } catch (err: any) {
             console.error(err);
-            setSelectedFile({ ...file, content: 'Error loading file content.' });
+            setSelectedFile({ ...file, content: `Error loading file content: ${err.message}` });
         }
     }, [repo.full_name, selectedFile]);
 
