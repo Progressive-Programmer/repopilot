@@ -1,7 +1,8 @@
 
 "use client";
 
-import { useState, useTransition, useEffect, useMemo } from 'react';
+import { useState, useTransition, useEffect } from 'react';
+import { useTheme } from 'next-themes';
 import { runCodeReview } from '@/app/actions';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -90,6 +91,8 @@ const ReviewPanel = ({ file }: { file: FileType }) => {
 }
 
 export function EditorView({ selectedFile }: EditorViewProps) {
+  const { theme } = useTheme();
+
   if (!selectedFile) {
     return (
       <div className="flex h-full flex-col items-center justify-center bg-background text-muted-foreground">
@@ -115,7 +118,7 @@ export function EditorView({ selectedFile }: EditorViewProps) {
           height="100%"
           language={selectedFile.language}
           value={selectedFile.content}
-          theme="vs-dark"
+          theme={theme === 'dark' ? 'vs-dark' : 'vs-light'}
           options={{
             readOnly: true,
             domReadOnly: true,
