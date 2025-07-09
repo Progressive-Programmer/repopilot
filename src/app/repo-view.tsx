@@ -2,7 +2,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from 'react';
-import type { Repository, FileSystemNode, File as FileType } from './page';
+import type { Repository, FileSystemNode, File as FileType, Folder } from './page';
 import { RepoExplorer } from '@/components/repo-explorer';
 import { EditorView } from '@/components/editor-view';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -15,64 +15,72 @@ import {
 
 // Helper function to build the file tree from a flat list of paths
 const buildFileTree = (paths: { path: string; type: 'blob' | 'tree'; url: string; sha: string }[]): FileSystemNode[] => {
-    const tree: { [key: string]: FileSystemNode } = {};
+    const root: FileSystemNode[] = [];
+    const nodeMap: { [path: string]: FileSystemNode } = {};
 
-    // Sort paths to ensure parent directories are created before their children
-    const sortedPaths = paths.sort((a, b) => a.path.localeCompare(b.path));
+    // Sort paths by depth to ensure parent directories are created before children
+    paths.sort((a, b) => a.path.split('/').length - b.path.split('/').length);
 
-    sortedPaths.forEach(item => {
+    paths.forEach(item => {
         const parts = item.path.split('/');
-        let currentLevel: any = tree;
+        const name = parts[parts.length - 1];
+        const parentPath = parts.slice(0, -1).join('/');
 
-        parts.forEach((part, index) => {
-            const isLastPart = index === parts.length - 1;
+        let newNode: FileSystemNode;
 
-            if (!currentLevel[part]) {
-                if (isLastPart && item.type === 'blob') {
-                    currentLevel[part] = {
-                        name: part,
-                        path: item.path,
-                        type: 'file',
-                        language: part.split('.').pop() || 'plaintext',
-                        content: '', // Will be fetched on demand
-                        url: item.url,
-                        sha: item.sha,
-                    };
-                } else {
-                    currentLevel[part] = {
-                        name: part,
-                        path: parts.slice(0, index + 1).join('/'),
-                        type: 'folder',
-                        children: {}, // Use an object for easy child lookup
-                        url: item.type === 'tree' ? item.url : '',
-                        sha: item.type === 'tree' ? item.sha : '',
-                    };
-                }
+        if (item.type === 'tree') {
+            newNode = {
+                name,
+                path: item.path,
+                type: 'folder',
+                children: [],
+                url: item.url,
+                sha: item.sha,
+            };
+        } else { // 'blob'
+            newNode = {
+                name,
+                path: item.path,
+                type: 'file',
+                content: '', // Fetched on demand
+                language: name.split('.').pop() || 'plaintext',
+                url: item.url,
+                sha: item.sha,
+            };
+        }
+
+        nodeMap[item.path] = newNode;
+
+        if (parentPath) {
+            const parent = nodeMap[parentPath] as Folder;
+            if (parent && parent.type === 'folder') {
+                parent.children.push(newNode);
             }
-
-            if (currentLevel[part].type === 'folder') {
-                currentLevel = currentLevel[part].children;
-            }
-        });
+        } else {
+            root.push(newNode);
+        }
     });
 
-    // Recursively convert children objects to sorted arrays
-    const convertChildrenToArray = (node: any): FileSystemNode[] => {
-        return Object.values(node)
-            .map((child: any) => {
-                if (child.type === 'folder') {
-                    child.children = convertChildrenToArray(child.children);
-                }
-                return child;
-            })
-            .sort((a: any, b: any) => {
+    // Recursively sort all children arrays
+    const sortChildren = (node: FileSystemNode) => {
+        if (node.type === 'folder' && node.children.length > 0) {
+            node.children.forEach(sortChildren);
+            node.children.sort((a, b) => {
                 if (a.type === 'folder' && b.type !== 'folder') return -1;
                 if (a.type !== 'folder' && b.type === 'folder') return 1;
                 return a.name.localeCompare(b.name);
             });
+        }
     };
+    
+    root.forEach(sortChildren);
+    root.sort((a, b) => {
+        if (a.type === 'folder' && b.type !== 'folder') return -1;
+        if (a.type !== 'folder' && b.type === 'folder') return 1;
+        return a.name.localeCompare(b.name);
+    });
 
-    return convertChildrenToArray(tree);
+    return root;
 };
 
 export function RepoView({ repo }: { repo: Repository }) {
@@ -85,6 +93,8 @@ export function RepoView({ repo }: { repo: Repository }) {
         const fetchFiles = async () => {
             setLoading(true);
             setError(null);
+            setFiles([]);
+            setSelectedFile(null);
             try {
                 // IMPORTANT: Added `recursive=1` to fetch the entire tree
                 const res = await fetch(`/api/github/repos/${repo.full_name}/git/trees/${repo.default_branch}?recursive=1`);
