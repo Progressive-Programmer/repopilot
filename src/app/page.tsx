@@ -203,7 +203,7 @@ const RepoDashboard = ({ onSelectRepo }: { onSelectRepo: (repo: Repository) => v
                         </Card>
                     ))}
                 </div>
-                {!error && repos.length === 0 && (
+                {!error && repos.length === 0 && !loading && (
                      <div className="text-center text-muted-foreground py-16">
                         <p>No repositories found.</p>
                         <p className="text-sm">Make sure you have granted access to your repositories.</p>
