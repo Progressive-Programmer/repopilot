@@ -40,6 +40,7 @@ export function getLanguageFromExtension(extension: string): string {
     case 'cs':
       return 'csharp';
     case 'html':
+    case 'htm':
       return 'html';
     case 'css':
       return 'css';
@@ -51,14 +52,34 @@ export function getLanguageFromExtension(extension: string): string {
     case 'xml':
       return 'xml';
     case 'md':
+    case 'markdown':
       return 'markdown';
     case 'sh':
+    case 'bash':
       return 'shell';
     case 'yaml':
     case 'yml':
       return 'yaml';
     case 'dockerfile':
       return 'dockerfile';
+    case 'sql':
+      return 'sql';
+    case 'graphql':
+    case 'gql':
+      return 'graphql';
+    case 'ini':
+      return 'ini';
+    case 'lua':
+      return 'lua';
+    case 'perl':
+    case 'pl':
+      return 'perl';
+    case 'r':
+      return 'r';
+    case 'bat':
+      return 'bat';
+    case 'ps1':
+      return 'powershell';
     default:
       return 'plaintext';
   }
