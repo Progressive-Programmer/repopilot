@@ -26,7 +26,7 @@ export async function middleware(request: NextRequest) {
       headers: {
         cookie: `${cookieName}=${sessionToken}`,
       },
-    },
+    }
   );
 
   if (!sessionRes.ok) {
@@ -41,19 +41,40 @@ export async function middleware(request: NextRequest) {
 
   // Now that we have the access token, we can proxy requests to the GitHub API.
   const url = new URL(request.url);
-  const path = url.pathname.replace('/api/github', '');
+  const path = url.pathname.replace(/^\/api\/github/, '');
 
-  const githubResponse = await fetch(`${GITHUB_API_URL}${path}`, {
-    headers: {
-      Authorization: `token ${accessToken}`,
-      'Content-Type': 'application/json',
-      Accept: 'application/vnd.github.v3+json',
-    },
-  });
+  try {
+    const githubResponse = await fetch(`${GITHUB_API_URL}${path}`, {
+      headers: {
+        Authorization: `token ${accessToken}`,
+        'Content-Type': 'application/json',
+        Accept: 'application/vnd.github.v3+json',
+      },
+    });
 
-  const data = await githubResponse.json();
+    if (!githubResponse.ok) {
+        return NextResponse.json(
+            { message: `GitHub API error: ${githubResponse.statusText}` },
+            { status: githubResponse.status }
+        );
+    }
 
-  return NextResponse.json(data, {status: githubResponse.status});
+    const contentType = githubResponse.headers.get("content-type");
+    if (contentType && contentType.indexOf("application/json") !== -1) {
+      const data = await githubResponse.json();
+      return NextResponse.json(data, {status: githubResponse.status});
+    } else {
+      // If the response is not JSON, we cannot parse it as such.
+      // We can either return an error or an empty object.
+      // Returning an empty array for list-like endpoints, or empty object for others
+      // might be a safe default to avoid client-side errors.
+      return NextResponse.json([], {status: githubResponse.status});
+    }
+
+  } catch (error) {
+    console.error('Middleware error:', error);
+    return NextResponse.json({ message: 'Internal Server Error' }, { status: 500 });
+  }
 }
 
 // We only want to run this middleware on requests to /api/github/*
