@@ -3,13 +3,13 @@
 
 import { useState, useTransition, useEffect, useRef } from 'react';
 import { useTheme } from 'next-themes';
-import { runCodeReview } from '@/app/actions';
+import { runCodeReview, commitFile } from '@/app/actions';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Wand2, Loader2, BotMessageSquare, FileCode, Braces } from 'lucide-react';
-import type { File as FileType } from '@/app/page';
+import { Wand2, Loader2, BotMessageSquare, FileCode, Braces, GitCommitHorizontal } from 'lucide-react';
+import type { File as FileType, Repository } from '@/app/page';
 import { useToast } from '@/hooks/use-toast';
 import Editor, { type OnMount } from '@monaco-editor/react';
 import {
@@ -17,9 +17,24 @@ import {
   ResizablePanel,
   ResizablePanelGroup,
 } from "@/components/ui/resizable";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+  DialogClose,
+} from "@/components/ui/dialog"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+
 
 interface EditorViewProps {
+  repo: Repository;
   selectedFile: FileType | null;
+  onCommitSuccess: (newFileState: FileType) => void;
 }
 
 const ReviewPanel = ({ file }: { file: FileType }) => {
@@ -90,9 +105,119 @@ const ReviewPanel = ({ file }: { file: FileType }) => {
   )
 }
 
-export function EditorView({ selectedFile }: EditorViewProps) {
+const CommitDialog = ({
+  repo,
+  file,
+  editorContent,
+  onCommitSuccess,
+  isDirty
+}: {
+  repo: Repository;
+  file: FileType;
+  editorContent: string;
+  onCommitSuccess: (newFileState: FileType) => void;
+  isDirty: boolean;
+}) => {
+  const [commitMessage, setCommitMessage] = useState(`Update ${file.name}`);
+  const [isCommitting, startCommitTransition] = useTransition();
+  const { toast } = useToast();
+  const [isOpen, setIsOpen] = useState(false);
+
+  const handleCommit = async () => {
+    if (!commitMessage.trim()) {
+      toast({ variant: 'destructive', title: 'Error', description: 'Commit message cannot be empty.' });
+      return;
+    }
+
+    startCommitTransition(async () => {
+      const result = await commitFile({
+        repoFullName: repo.full_name,
+        filePath: file.path,
+        content: editorContent,
+        sha: file.sha,
+        commitMessage,
+      });
+
+      if (result.success) {
+        // We need to fetch the new SHA for the file to allow subsequent commits
+        const res = await fetch(`/api/github/repos/${repo.full_name}/contents/${file.path}`);
+        const { data: updatedFileData } = await res.json();
+        
+        onCommitSuccess({ ...file, content: editorContent, sha: updatedFileData.sha });
+        setIsOpen(false);
+      } else {
+        toast({
+          variant: 'destructive',
+          title: 'Commit Failed',
+          description: result.error,
+        });
+      }
+    });
+  };
+  
+  return (
+    <Dialog open={isOpen} onOpenChange={setIsOpen}>
+      <DialogTrigger asChild>
+        <Button size="sm" disabled={!isDirty}>
+          <GitCommitHorizontal className="mr-2 h-4 w-4" />
+          Commit Changes
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="sm:max-w-[425px]">
+        <DialogHeader>
+          <DialogTitle>Commit changes to {file.name}</DialogTitle>
+          <DialogDescription>
+            Enter a commit message to describe your changes.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-4 py-4">
+          <div className="grid grid-cols-4 items-center gap-4">
+            <Label htmlFor="commit-message" className="text-right">
+              Message
+            </Label>
+            <Input
+              id="commit-message"
+              value={commitMessage}
+              onChange={(e) => setCommitMessage(e.target.value)}
+              className="col-span-3"
+              placeholder={`Update ${file.name}`}
+            />
+          </div>
+        </div>
+        <DialogFooter>
+          <DialogClose asChild>
+            <Button variant="outline" disabled={isCommitting}>Cancel</Button>
+          </DialogClose>
+          <Button onClick={handleCommit} disabled={isCommitting}>
+            {isCommitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            Commit
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+export function EditorView({ repo, selectedFile, onCommitSuccess }: EditorViewProps) {
   const { theme } = useTheme();
   const editorRef = useRef<any>(null);
+  const [editorContent, setEditorContent] = useState<string>('');
+  const [isDirty, setIsDirty] = useState(false);
+
+  useEffect(() => {
+    if (selectedFile) {
+      setEditorContent(selectedFile.content);
+      setIsDirty(false);
+    }
+  }, [selectedFile]);
+
+  const handleEditorChange = (value: string | undefined) => {
+    const content = value || '';
+    setEditorContent(content);
+    if (selectedFile) {
+        setIsDirty(content !== selectedFile.content);
+    }
+  };
 
   const handleEditorDidMount: OnMount = (editor, monaco) => {
     editorRef.current = editor;
@@ -114,7 +239,7 @@ export function EditorView({ selectedFile }: EditorViewProps) {
     );
   }
 
-  if (selectedFile.content === '') {
+  if (selectedFile.content === '' && editorContent === '') {
      return (
       <div className="flex h-full items-center justify-center bg-background">
         <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
@@ -127,23 +252,31 @@ export function EditorView({ selectedFile }: EditorViewProps) {
       <ResizablePanel defaultSize={75}>
         <div className="flex flex-col h-full">
           <div className="flex items-center justify-between px-4 py-2 border-b bg-muted/50 h-14 shrink-0">
-             <div className="font-mono text-sm">{selectedFile.name}</div>
-             <Button variant="ghost" size="sm" onClick={handleFormatCode}>
-                <Braces className="mr-2 h-4 w-4" />
-                Format Code
-             </Button>
+             <div className="font-mono text-sm">{selectedFile.name} {isDirty && <span className="text-muted-foreground">*</span>}</div>
+             <div className="flex items-center gap-2">
+                <CommitDialog
+                    repo={repo}
+                    file={selectedFile}
+                    editorContent={editorContent}
+                    onCommitSuccess={onCommitSuccess}
+                    isDirty={isDirty}
+                />
+                <Button variant="ghost" size="sm" onClick={handleFormatCode}>
+                    <Braces className="mr-2 h-4 w-4" />
+                    Format Code
+                </Button>
+             </div>
           </div>
           <div className="flex-1 overflow-hidden">
             <Editor
               height="100%"
               path={selectedFile.path}
               language={selectedFile.language}
-              defaultValue={selectedFile.content}
+              value={editorContent}
               theme={theme === 'dark' ? 'vs-dark' : 'vs-light'}
               onMount={handleEditorDidMount}
+              onChange={handleEditorChange}
               options={{
-                readOnly: true,
-                domReadOnly: true,
                 wordWrap: 'on',
                 minimap: { enabled: true },
                 scrollBeyondLastLine: false,
@@ -156,7 +289,7 @@ export function EditorView({ selectedFile }: EditorViewProps) {
       </ResizablePanel>
       <ResizableHandle withHandle />
       <ResizablePanel defaultSize={25} minSize={20}>
-        <ReviewPanel file={selectedFile} />
+        <ReviewPanel file={{...selectedFile, content: editorContent}} />
       </ResizablePanel>
     </ResizablePanelGroup>
   );

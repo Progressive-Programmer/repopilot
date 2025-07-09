@@ -13,6 +13,7 @@ import {
   ResizablePanelGroup,
 } from "@/components/ui/resizable";
 import { getLanguageFromExtension } from '@/lib/utils';
+import { useToast } from '@/hooks/use-toast';
 
 
 // Helper to sort files and folders
@@ -29,6 +30,7 @@ export function RepoView({ repo }: { repo: Repository }) {
     const [selectedFile, setSelectedFile] = useState<FileType | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+    const { toast } = useToast();
 
     // Fetch initial root-level files
     useEffect(() => {
@@ -141,6 +143,14 @@ export function RepoView({ repo }: { repo: Repository }) {
         }
     }, [repo.full_name]);
 
+    const onCommitSuccess = (newFileState: FileType) => {
+        setSelectedFile(newFileState);
+        toast({
+            title: "Commit Successful",
+            description: `Changes to ${newFileState.name} have been committed.`,
+        });
+    };
+
     if (error) {
         return (
             <div className="flex items-center justify-center h-full p-4">
@@ -167,7 +177,11 @@ export function RepoView({ repo }: { repo: Repository }) {
             </ResizablePanel>
             <ResizableHandle withHandle />
             <ResizablePanel defaultSize={80}>
-                <EditorView selectedFile={selectedFile} />
+                <EditorView 
+                    repo={repo}
+                    selectedFile={selectedFile} 
+                    onCommitSuccess={onCommitSuccess} 
+                />
             </ResizablePanel>
         </ResizablePanelGroup>
     );
