@@ -40,7 +40,7 @@ export type FileSystemNode = File | Folder;
 
 
 async function getRepoContents(repoFullName: string, path: string = ''): Promise<FileSystemNode[]> {
-    const res = await fetch(`https://api.github.com/repos/${repoFullName}/contents/${path}`);
+    const res = await fetch(`/api/github/repos/${repoFullName}/contents/${path}`);
     if (!res.ok) {
         throw new Error('Failed to fetch repository contents');
     }
@@ -67,7 +67,7 @@ async function getRepoContents(repoFullName: string, path: string = ''): Promise
 }
 
 async function getFileContent(repoFullName: string, path: string): Promise<string> {
-    const res = await fetch(`https://api.github.com/repos/${repoFullName}/contents/${path}`);
+    const res = await fetch(`/api/github/repos/${repoFullName}/contents/${path}`);
     if (!res.ok) {
         throw new Error('Failed to fetch file content');
     }
@@ -116,7 +116,7 @@ const RepoDashboard = ({ onSelectRepo }: { onSelectRepo: (repo: Repository) => v
         async function fetchRepos() {
             setLoading(true);
             try {
-                const res = await fetch('https://api.github.com/user/repos');
+                const res = await fetch('/api/github/user/repos');
                 if (res.ok) {
                     const data = await res.json();
                     setRepos(data);
