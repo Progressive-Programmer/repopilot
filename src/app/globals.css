@@ -57,6 +57,10 @@
     --chart-4: 280 65% 60%;
     --chart-5: 340 75% 55%;
   }
+
+  .dark .monaco-editor {
+      --vscode-editor-background: hsl(var(--background));
+  }
 }
 
 @layer base {

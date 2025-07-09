@@ -6,30 +6,29 @@ import type { Repository, FileSystemNode, File as FileType } from './page';
 import { RepoExplorer } from '@/components/repo-explorer';
 import { EditorView } from '@/components/editor-view';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { AlertTriangle } from 'lucide-react';
+import { AlertTriangle, Loader2 } from 'lucide-react';
+import {
+  ResizableHandle,
+  ResizablePanel,
+  ResizablePanelGroup,
+} from "@/components/ui/resizable";
 
 // Helper function to build the file tree
 const buildFileTree = (paths: any[]): FileSystemNode[] => {
     const tree: { [key: string]: any } = {};
 
-    paths.forEach(item => {
-        const parts = item.path.split('/');
-        let currentLevel = tree;
+    const items = paths
+      .filter(item => item.type === 'blob' || item.type === 'tree')
+      .map(item => ({ ...item, parts: item.path.split('/') }));
 
-        parts.forEach((part, index) => {
-            if (index === parts.length - 1 && item.type === 'blob') {
-                currentLevel[part] = {
-                    name: part,
-                    path: item.path,
-                    type: 'file',
-                    language: part.split('.').pop() || 'plaintext',
-                    content: '', // Content will be fetched on demand
-                    url: item.url,
-                    sha: item.sha,
-                };
-            } else if(item.type === 'tree') {
-                if (!currentLevel[part]) {
-                    currentLevel[part] = {
+    items.sort((a, b) => a.path.localeCompare(b.path));
+
+    items.forEach(item => {
+        let currentLevel = tree;
+        item.parts.forEach((part: string, index: number) => {
+            if (!currentLevel[part]) {
+                if (item.type === 'tree' && index === item.parts.length - 1) {
+                     currentLevel[part] = {
                         name: part,
                         path: item.path,
                         type: 'folder',
@@ -37,7 +36,28 @@ const buildFileTree = (paths: any[]): FileSystemNode[] => {
                         url: item.url,
                         sha: item.sha,
                     };
+                } else if (item.type === 'blob' && index === item.parts.length - 1) {
+                    currentLevel[part] = {
+                        name: part,
+                        path: item.path,
+                        type: 'file',
+                        language: part.split('.').pop() || 'plaintext',
+                        content: '', // Content will be fetched on demand
+                        url: item.url,
+                        sha: item.sha,
+                    };
+                } else {
+                     currentLevel[part] = {
+                        name: part,
+                        path: item.parts.slice(0, index + 1).join('/'),
+                        type: 'folder',
+                        children: {},
+                        url: '',
+                        sha: '',
+                    };
                 }
+            }
+            if (currentLevel[part].type === 'folder') {
                 currentLevel = currentLevel[part].children;
             }
         });
@@ -49,6 +69,10 @@ const buildFileTree = (paths: any[]): FileSystemNode[] => {
                 return { ...node, children: convertToList(node.children) };
             }
             return node;
+        }).sort((a, b) => {
+            if (a.type === 'folder' && b.type !== 'folder') return -1;
+            if (a.type !== 'folder' && b.type === 'folder') return 1;
+            return a.name.localeCompare(b.name);
         });
     };
 
@@ -73,6 +97,9 @@ export function RepoView({ repo }: { repo: Repository }) {
                     throw new Error(errorData.message);
                 }
                 const data = await res.json();
+                 if (data.truncated) {
+                    console.warn("File tree is truncated. Some files may not be shown.");
+                }
                 const tree = buildFileTree(data.tree);
                 setFiles(tree);
             } catch (err: any) {
@@ -86,7 +113,10 @@ export function RepoView({ repo }: { repo: Repository }) {
     }, [repo]);
     
     const handleSelectFile = useCallback(async (file: FileType) => {
-        // Set file as selected immediately for responsive UI, but clear content
+        if (selectedFile?.path === file.path && selectedFile.content) {
+            return;
+        }
+
         setSelectedFile({ ...file, content: '' });
 
         try {
@@ -103,35 +133,37 @@ export function RepoView({ repo }: { repo: Repository }) {
             }
         } catch (err) {
             console.error(err);
-            // Keep the file selected, but show an error message in its content
             setSelectedFile({ ...file, content: 'Error loading file content.' });
         }
-    }, [repo.full_name]);
+    }, [repo.full_name, selectedFile]);
+
+    if (error) {
+        return (
+            <div className="flex items-center justify-center h-full p-4">
+                <Alert variant="destructive" className="max-w-lg">
+                    <AlertTriangle className="h-4 w-4" />
+                    <AlertTitle>Error Loading Repository</AlertTitle>
+                    <AlertDescription>{error}</AlertDescription>
+                </Alert>
+            </div>
+        );
+    }
 
     return (
-        <div className="grid grid-cols-1 md:grid-cols-[300px_1fr] h-full">
-            <div className="h-full border-r hidden md:block">
-                 <RepoExplorer 
+        <ResizablePanelGroup direction="horizontal" className="h-full w-full">
+            <ResizablePanel defaultSize={20} minSize={15} maxSize={30}>
+                <RepoExplorer 
                     repo={repo}
                     files={files}
                     onSelectFile={handleSelectFile}
                     selectedFile={selectedFile}
                     loading={loading}
                 />
-            </div>
-            <div className="h-full">
-                 {error ? (
-                    <div className="flex items-center justify-center h-full p-4">
-                        <Alert variant="destructive" className="max-w-lg">
-                            <AlertTriangle className="h-4 w-4" />
-                            <AlertTitle>Error Loading Repository</AlertTitle>
-                            <AlertDescription>{error}</AlertDescription>
-                        </Alert>
-                    </div>
-                ) : (
-                    <EditorView selectedFile={selectedFile} />
-                )}
-            </div>
-        </div>
+            </ResizablePanel>
+            <ResizableHandle withHandle />
+            <ResizablePanel defaultSize={80}>
+                <EditorView selectedFile={selectedFile} />
+            </ResizablePanel>
+        </ResizablePanelGroup>
     );
 }

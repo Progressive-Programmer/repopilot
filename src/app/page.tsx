@@ -86,7 +86,7 @@ const RepoDashboard = ({ session, onSelectRepo }: { session: Session | null, onS
             setLoading(true);
             setError(null);
             try {
-                const res = await fetch('/api/github/user/repos?sort=pushed');
+                const res = await fetch('/api/github/user/repos?sort=pushed&per_page=100');
                 if (res.ok) {
                     const data = await res.json();
                     setRepos(data);
@@ -180,7 +180,7 @@ export default function Home() {
 
     if (status === "loading") {
         return (
-             <div className="flex items-center justify-center h-svh">
+             <div className="flex items-center justify-center h-svh bg-background">
                 <Loader2 className="h-12 w-12 animate-spin text-muted-foreground" />
             </div>
         );
@@ -193,13 +193,15 @@ export default function Home() {
     if (selectedRepo) {
         return (
             <div className="flex flex-col h-svh bg-background">
-                <header className="flex items-center justify-between p-4 border-b h-16 shrink-0">
+                <header className="flex items-center justify-between px-4 border-b h-16 shrink-0">
                     <div className="flex items-center gap-4">
                         <Button variant="outline" size="sm" onClick={handleBackToDashboard}>
                             <ArrowLeft className="mr-2 h-4 w-4" />
                             Back
                         </Button>
-                        <Logo />
+                        <div className='hidden md:block'>
+                         <Logo />
+                        </div>
                     </div>
                     <GithubUI />
                 </header>
