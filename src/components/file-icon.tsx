@@ -7,6 +7,7 @@ import {
     type LucideProps
 } from 'lucide-react';
 import type { FC } from 'react';
+import { cn } from '@/lib/utils';
 
 // Custom colorful SVG icons inspired by VS Code
 const icons: Record<string, React.ReactNode> = {
