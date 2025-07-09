@@ -12,6 +12,7 @@ import {
   ResizablePanel,
   ResizablePanelGroup,
 } from "@/components/ui/resizable";
+import { getLanguageFromExtension } from '@/lib/utils';
 
 
 // Helper to sort files and folders
@@ -51,7 +52,7 @@ export function RepoView({ repo }: { repo: Repository }) {
                     url: item.url,
                     children: item.type === 'dir' ? [] : undefined,
                     content: item.type === 'file' ? '' : undefined,
-                    language: item.type === 'file' ? item.name.split('.').pop() || 'plaintext' : undefined,
+                    language: item.type === 'file' ? getLanguageFromExtension(item.name.split('.').pop() || '') : undefined,
                 }));
                 setFileTree(sortNodes(nodes));
             } catch (err: any) {
@@ -105,7 +106,7 @@ export function RepoView({ repo }: { repo: Repository }) {
                 url: item.url,
                 children: item.type === 'dir' ? [] : undefined,
                 content: item.type === 'file' ? '' : undefined,
-                language: item.type === 'file' ? item.name.split('.').pop() || 'plaintext' : undefined,
+                language: item.type === 'file' ? getLanguageFromExtension(item.name.split('.').pop() || '') : undefined,
             }));
 
             // This function recursively finds the folder and updates its children
