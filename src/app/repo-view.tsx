@@ -13,98 +13,47 @@ import {
   ResizablePanelGroup,
 } from "@/components/ui/resizable";
 
-// Helper function to build the file tree from a flat list of paths
-const buildFileTree = (paths: { path: string; type: 'blob' | 'tree'; url: string; sha: string }[]): FileSystemNode[] => {
-    const nodeMap: { [path: string]: FileSystemNode } = {};
 
-    // Sort paths to ensure parent directories are created before their children
-    paths.sort((a, b) => a.path.localeCompare(b.path));
-
-    for (const item of paths) {
-        let newNode: FileSystemNode;
-        if (item.type === 'tree') {
-            newNode = {
-                name: item.path.split('/').pop()!,
-                path: item.path,
-                type: 'folder',
-                children: [],
-                url: item.url,
-                sha: item.sha,
-            };
-        } else { // blob
-            newNode = {
-                name: item.path.split('/').pop()!,
-                path: item.path,
-                type: 'file',
-                content: '', // Fetched on demand
-                language: item.path.split('.').pop() || 'plaintext',
-                url: item.url,
-                sha: item.sha,
-            };
-        }
-        nodeMap[item.path] = newNode;
-    }
-
-    const rootNodes: FileSystemNode[] = [];
-    for (const item of paths) {
-        const parentPath = item.path.substring(0, item.path.lastIndexOf('/'));
-        if (parentPath && nodeMap[parentPath]) {
-            const parent = nodeMap[parentPath] as Folder;
-            if (parent.type === 'folder') {
-                parent.children.push(nodeMap[item.path]);
-            }
-        } else {
-            rootNodes.push(nodeMap[item.path]);
-        }
-    }
-    
-    const sortChildren = (node: FileSystemNode) => {
-        if (node.type === 'folder' && node.children.length > 0) {
-            node.children.forEach(sortChildren);
-            node.children.sort((a, b) => {
-                if (a.type === 'folder' && b.type !== 'folder') return -1;
-                if (a.type !== 'folder' && b.type === 'folder') return 1;
-                return a.name.localeCompare(b.name);
-            });
-        }
-    };
-    
-    rootNodes.forEach(sortChildren);
-    rootNodes.sort((a, b) => {
+// Helper to sort files and folders
+const sortNodes = (nodes: FileSystemNode[]) => {
+    return nodes.sort((a, b) => {
         if (a.type === 'folder' && b.type !== 'folder') return -1;
         if (a.type !== 'folder' && b.type === 'folder') return 1;
         return a.name.localeCompare(b.name);
     });
-
-    return rootNodes;
 };
 
-
 export function RepoView({ repo }: { repo: Repository }) {
-    const [files, setFiles] = useState<FileSystemNode[]>([]);
+    const [fileTree, setFileTree] = useState<FileSystemNode[]>([]);
     const [selectedFile, setSelectedFile] = useState<FileType | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
+    // Fetch initial root-level files
     useEffect(() => {
-        const fetchFiles = async () => {
+        const fetchRootFiles = async () => {
             setLoading(true);
             setError(null);
-            setFiles([]);
+            setFileTree([]);
             setSelectedFile(null);
             try {
-                const res = await fetch(`/api/github/repos/${repo.full_name}/git/trees/${repo.default_branch}?recursive=1`);
+                const res = await fetch(`/api/github/repos/${repo.full_name}/contents`);
                 if (!res.ok) {
-                    const errorData = await res.json().catch(() => ({ message: 'Failed to fetch repository tree.' }));
+                    const errorData = await res.json().catch(() => ({ message: 'Failed to fetch repository contents.' }));
                     throw new Error(errorData.message);
                 }
                 const data = await res.json();
-                 if (data.truncated) {
-                    console.warn("File tree is truncated. Some files may not be shown.");
-                }
-                const relevantItems = data.tree.filter((item: any) => item.type === 'blob' || item.type === 'tree');
-                const tree = buildFileTree(relevantItems);
-                setFiles(tree);
+                const nodes: FileSystemNode[] = data.map((item: any) => ({
+                    name: item.name,
+                    path: item.path,
+                    type: item.type === 'dir' ? 'folder' : 'file',
+                    sha: item.sha,
+                    url: item.url,
+                    children: item.type === 'dir' ? [] : undefined,
+                    content: item.type === 'file' ? '' : undefined,
+                    language: item.type === 'file' ? item.name.split('.').pop() || 'plaintext' : undefined,
+                }));
+                setFileTree(sortNodes(nodes));
             } catch (err: any) {
                 setError(err.message || 'An unexpected error occurred.');
             } finally {
@@ -112,14 +61,16 @@ export function RepoView({ repo }: { repo: Repository }) {
             }
         };
 
-        fetchFiles();
+        fetchRootFiles();
     }, [repo]);
     
     const handleSelectFile = useCallback(async (file: FileType) => {
+        // Avoid refetching if content is already loaded
         if (selectedFile?.path === file.path && selectedFile.content) {
             return;
         }
 
+        // Show loader immediately
         setSelectedFile({ ...file, content: '' });
 
         try {
@@ -141,6 +92,46 @@ export function RepoView({ repo }: { repo: Repository }) {
         }
     }, [repo.full_name, selectedFile]);
 
+    const handleFolderClick = useCallback(async (folderPath: string) => {
+        try {
+            const res = await fetch(`/api/github/repos/${repo.full_name}/contents/${folderPath}`);
+            if (!res.ok) throw new Error('Failed to fetch folder content');
+            const data = await res.json();
+            const children: FileSystemNode[] = data.map((item: any) => ({
+                name: item.name,
+                path: item.path,
+                type: item.type === 'dir' ? 'folder' : 'file',
+                sha: item.sha,
+                url: item.url,
+                children: item.type === 'dir' ? [] : undefined,
+                content: item.type === 'file' ? '' : undefined,
+                language: item.type === 'file' ? item.name.split('.').pop() || 'plaintext' : undefined,
+            }));
+
+            // This function recursively finds the folder and updates its children
+            const updateTree = (nodes: FileSystemNode[]): FileSystemNode[] => {
+                return nodes.map(node => {
+                    if (node.type === 'folder') {
+                        if (node.path === folderPath) {
+                            // Found the folder, update its children
+                            return { ...node, children: sortNodes(children) };
+                        } else if (folderPath.startsWith(node.path + '/')) {
+                            // The target folder is inside this one, recurse
+                            return { ...node, children: updateTree(node.children) };
+                        }
+                    }
+                    return node;
+                });
+            };
+            
+            setFileTree(currentTree => updateTree(currentTree));
+
+        } catch (err) {
+            console.error("Failed to load folder contents:", err);
+            // Optionally set an error state for this specific folder
+        }
+    }, [repo.full_name]);
+
     if (error) {
         return (
             <div className="flex items-center justify-center h-full p-4">
@@ -155,11 +146,12 @@ export function RepoView({ repo }: { repo: Repository }) {
 
     return (
         <ResizablePanelGroup direction="horizontal" className="h-full w-full">
-            <ResizablePanel defaultSize={20} minSize={15} maxSize={30}>
+            <ResizablePanel defaultSize={20} minSize={15} maxSize={40}>
                 <RepoExplorer 
                     repo={repo}
-                    files={files}
+                    nodes={fileTree}
                     onSelectFile={handleSelectFile}
+                    onFolderClick={handleFolderClick}
                     selectedFile={selectedFile}
                     loading={loading}
                 />

@@ -11,31 +11,54 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 
 interface RepoExplorerProps {
   repo: Repository;
-  files: FileSystemNode[];
+  nodes: FileSystemNode[];
   onSelectFile: (file: FileType) => void;
+  onFolderClick: (path: string) => Promise<void>;
   selectedFile: FileType | null;
   loading: boolean;
 }
 
-const FileNode: FC<{ node: FileSystemNode; onSelectFile: (file: FileType) => void; level: number, selectedFile: FileType | null }> = ({ node, onSelectFile, level, selectedFile }) => {
-  const [isOpen, setIsOpen] = useState(true);
+const NodeDisplay: FC<{ 
+    node: FileSystemNode; 
+    onSelectFile: (file: FileType) => void; 
+    onFolderClick: (path: string) => Promise<void>;
+    level: number;
+    selectedFile: FileType | null 
+}> = ({ node, onSelectFile, onFolderClick, level, selectedFile }) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+
+  const handleToggle = async () => {
+    if (node.type === 'folder') {
+      if (!isOpen && node.children.length === 0) {
+        setIsLoading(true);
+        await onFolderClick(node.path);
+        setIsLoading(false);
+      }
+      setIsOpen(!isOpen);
+    }
+  };
 
   if (node.type === 'folder') {
     return (
       <div className="text-sm">
         <div
-          onClick={() => setIsOpen(!isOpen)}
+          onClick={handleToggle}
           className="flex items-center w-full justify-start pr-2 cursor-pointer hover:bg-muted rounded-sm"
           style={{ paddingLeft: `${level * 1}rem` }}
         >
           <ChevronRight className={cn("h-4 w-4 mr-1 transition-transform shrink-0", isOpen && "rotate-90")} />
-          <FolderIcon className="h-4 w-4 mr-2 shrink-0 text-foreground/80" />
+          {isLoading ? (
+            <Loader2 className="h-4 w-4 mr-2 shrink-0 animate-spin" />
+          ) : (
+            <FolderIcon className="h-4 w-4 mr-2 shrink-0 text-foreground/80" />
+          )}
           <span className="truncate py-1.5">{node.name}</span>
         </div>
-        {isOpen && (
+        {isOpen && !isLoading && (
           <div className="flex flex-col">
             {node.children && node.children.map((child) => (
-              <FileNode key={child.path} node={child} onSelectFile={onSelectFile} level={level + 1} selectedFile={selectedFile} />
+              <NodeDisplay key={child.path} node={child} onSelectFile={onSelectFile} onFolderClick={onFolderClick} level={level + 1} selectedFile={selectedFile} />
             ))}
           </div>
         )}
@@ -43,6 +66,7 @@ const FileNode: FC<{ node: FileSystemNode; onSelectFile: (file: FileType) => voi
     );
   }
 
+  // It's a file
   const isActive = selectedFile?.path === node.path;
   return (
     <div className="text-sm">
@@ -61,7 +85,7 @@ const FileNode: FC<{ node: FileSystemNode; onSelectFile: (file: FileType) => voi
 };
 
 
-export function RepoExplorer({ repo, files, onSelectFile, selectedFile, loading }: RepoExplorerProps) {
+export function RepoExplorer({ repo, nodes, onSelectFile, onFolderClick, selectedFile, loading }: RepoExplorerProps) {
   return (
     <div className="h-full flex flex-col bg-background border-r">
         <div className="p-3 border-b h-14 flex items-center">
@@ -78,8 +102,8 @@ export function RepoExplorer({ repo, files, onSelectFile, selectedFile, loading 
                 </div>
               ) : (
                 <div className="flex flex-col gap-px p-1">
-                    {files.map((node) => (
-                        <FileNode key={node.path} node={node} onSelectFile={onSelectFile} level={1} selectedFile={selectedFile} />
+                    {nodes.map((node) => (
+                        <NodeDisplay key={node.path} node={node} onSelectFile={onSelectFile} onFolderClick={onFolderClick} level={1} selectedFile={selectedFile} />
                     ))}
                 </div>
               )}
