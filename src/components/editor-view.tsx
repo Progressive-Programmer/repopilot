@@ -113,7 +113,7 @@ export function EditorView({ selectedFile }: EditorViewProps) {
 
   return (
     <ResizablePanelGroup direction="horizontal" className="h-full">
-      <ResizablePanel defaultSize={60}>
+      <ResizablePanel defaultSize={75}>
         <Editor
           height="100%"
           language={selectedFile.language}
@@ -129,7 +129,7 @@ export function EditorView({ selectedFile }: EditorViewProps) {
         />
       </ResizablePanel>
       <ResizableHandle withHandle />
-      <ResizablePanel defaultSize={40}>
+      <ResizablePanel defaultSize={25}>
         <ReviewPanel file={selectedFile} />
       </ResizablePanel>
     </ResizablePanelGroup>
