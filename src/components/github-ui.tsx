@@ -20,7 +20,7 @@ export function GithubUI() {
   if (status === "unauthenticated") {
     return (
       <Button onClick={() => signIn("github")}>
-        <LogIn className="mr-2" />
+        <LogIn className="mr-2 h-4 w-4" />
         Sign in with GitHub
       </Button>
     );
