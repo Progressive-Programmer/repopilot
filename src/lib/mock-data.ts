@@ -1,3 +1,7 @@
+
+// This file is no longer used for the primary data source,
+// but is kept for reference or future testing purposes.
+
 export interface File {
   name: string;
   type: 'file';
@@ -6,7 +10,7 @@ export interface File {
 }
 
 export interface Folder {
-  name: string;
+  name:string;
   type: 'folder';
   children: (File | Folder)[];
 }

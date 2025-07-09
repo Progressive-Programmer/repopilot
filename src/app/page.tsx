@@ -1,15 +1,84 @@
 
 "use client";
 
-import { useState } from 'react';
-import { Github, GitBranch, ArrowLeft } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { useSession, signIn } from "next-auth/react";
+import { Github, GitBranch, ArrowLeft, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { EditorView } from '@/components/editor-view';
 import { RepoExplorer } from '@/components/repo-explorer';
 import { GithubUI } from '@/components/github-ui';
-import { repositories } from '@/lib/mock-data';
-import type { Repository, File as FileType } from '@/lib/mock-data';
+
+// Simplified types for GitHub API responses
+export interface Repository {
+  id: number;
+  name: string;
+  full_name: string;
+  description: string | null;
+  owner: {
+    login: string;
+  };
+}
+
+export interface File {
+  name: string;
+  type: 'file';
+  path: string;
+  content: string;
+  language: string; // You might need to determine this based on file extension
+}
+
+export interface Folder {
+    name: string;
+    type: 'folder';
+    path: string;
+    children: (File | Folder)[];
+}
+
+export type FileSystemNode = File | Folder;
+
+
+async function getRepoContents(repoFullName: string, path: string = ''): Promise<FileSystemNode[]> {
+    const res = await fetch(`https://api.github.com/repos/${repoFullName}/contents/${path}`);
+    if (!res.ok) {
+        throw new Error('Failed to fetch repository contents');
+    }
+    const contents = await res.json();
+
+    return contents.map((item: any) => {
+        if (item.type === 'dir') {
+            return {
+                name: item.name,
+                type: 'folder',
+                path: item.path,
+                children: [], // Initially empty, can be fetched on-demand
+            };
+        } else {
+            return {
+                name: item.name,
+                type: 'file',
+                path: item.path,
+                content: '', // Content will be fetched when the file is selected
+                language: item.name.split('.').pop() || 'plaintext',
+            };
+        }
+    });
+}
+
+async function getFileContent(repoFullName: string, path: string): Promise<string> {
+    const res = await fetch(`https://api.github.com/repos/${repoFullName}/contents/${path}`);
+    if (!res.ok) {
+        throw new Error('Failed to fetch file content');
+    }
+    const fileData = await res.json();
+    if (typeof fileData.content !== 'string' || fileData.encoding !== 'base64') {
+        throw new Error('Invalid file data received from GitHub API');
+    }
+    // `atob` is available in modern browsers and worker threads
+    return atob(fileData.content);
+}
+
 
 const Logo = () => (
     <div className="flex items-center gap-2">
@@ -22,7 +91,63 @@ const Logo = () => (
     </div>
 );
 
-const RepoDashboard = ({ onSelectRepo }: { onSelectRepo: (repo: Repository) => void }) => (
+const UnauthenticatedView = () => (
+    <div className="flex flex-col items-center justify-center h-svh bg-background">
+        <Card className="w-full max-w-md">
+            <CardHeader className="text-center">
+                <CardTitle className="text-2xl">Welcome to RepoPilot</CardTitle>
+                <CardDescription>Sign in with your GitHub account to get started.</CardDescription>
+            </CardHeader>
+            <CardContent>
+                <Button className="w-full" onClick={() => signIn('github')}>
+                    <Github className="mr-2 h-5 w-5" />
+                    Sign in with GitHub
+                </Button>
+            </CardContent>
+        </Card>
+    </div>
+);
+
+const RepoDashboard = ({ onSelectRepo }: { onSelectRepo: (repo: Repository) => void }) => {
+    const [repos, setRepos] = useState<Repository[]>([]);
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+        async function fetchRepos() {
+            setLoading(true);
+            try {
+                const res = await fetch('https://api.github.com/user/repos');
+                if (res.ok) {
+                    const data = await res.json();
+                    setRepos(data);
+                } else {
+                    console.error("Failed to fetch repos");
+                    setRepos([]);
+                }
+            } catch (error) {
+                console.error(error);
+            } finally {
+                setLoading(false);
+            }
+        }
+        fetchRepos();
+    }, []);
+
+    if (loading) {
+        return (
+             <div className="flex flex-col h-svh bg-background">
+                <header className="flex items-center justify-between p-4 border-b h-16 shrink-0">
+                    <Logo />
+                    <GithubUI />
+                </header>
+                <main className="flex-1 flex items-center justify-center">
+                    <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+                </main>
+            </div>
+        )
+    }
+
+    return (
     <div className="flex flex-col h-svh bg-background">
         <header className="flex items-center justify-between p-4 border-b h-16 shrink-0">
             <Logo />
@@ -32,7 +157,7 @@ const RepoDashboard = ({ onSelectRepo }: { onSelectRepo: (repo: Repository) => v
             <div className="max-w-4xl mx-auto">
                 <h2 className="text-2xl font-bold tracking-tight mb-4">Repositories</h2>
                 <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                    {repositories.map(repo => (
+                    {repos.map(repo => (
                         <Card key={repo.id} className="hover:shadow-md transition-shadow cursor-pointer" onClick={() => onSelectRepo(repo)}>
                             <CardHeader>
                                 <CardTitle className="flex items-center gap-2 text-xl">
@@ -40,12 +165,9 @@ const RepoDashboard = ({ onSelectRepo }: { onSelectRepo: (repo: Repository) => v
                                     {repo.name}
                                 </CardTitle>
                                 <CardDescription>
-                                    A brief description of the repository.
+                                    {repo.description || "No description."}
                                 </CardDescription>
                             </CardHeader>
-                            <CardContent>
-                                <p className="text-sm text-muted-foreground">Contains {repo.files.length} top-level files/folders.</p>
-                            </CardContent>
                             <CardFooter>
                                 <Button variant="secondary" size="sm" className="w-full">
                                     Open Repository
@@ -57,18 +179,61 @@ const RepoDashboard = ({ onSelectRepo }: { onSelectRepo: (repo: Repository) => v
             </div>
         </main>
     </div>
-);
+    );
+};
 
 const RepoView = ({ repo, onBack }: { repo: Repository, onBack: () => void }) => {
-    const [selectedFile, setSelectedFile] = useState<FileType | null>(null);
+    const [selectedFile, setSelectedFile] = useState<File | null>(null);
+    const [files, setFiles] = useState<FileSystemNode[]>([]);
+    const [loadingFiles, setLoadingFiles] = useState(true);
+
+    useEffect(() => {
+        setLoadingFiles(true);
+        getRepoContents(repo.full_name)
+            .then(setFiles)
+            .catch(console.error)
+            .finally(() => setLoadingFiles(false));
+    }, [repo.full_name]);
+
+    const handleSelectFile = async (file: File) => {
+        if (file.content) {
+            setSelectedFile(file);
+            return;
+        }
+        
+        try {
+            const content = await getFileContent(repo.full_name, file.path);
+            const updatedFile = { ...file, content };
+            setSelectedFile(updatedFile);
+
+            // Update the file in the tree
+            const updateFilesInTree = (nodes: FileSystemNode[]): FileSystemNode[] => {
+                return nodes.map(node => {
+                    if (node.type === 'file' && node.path === file.path) {
+                        return updatedFile;
+                    }
+                    if (node.type === 'folder' && file.path.startsWith(node.path)) {
+                         return { ...node, children: updateFilesInTree(node.children) };
+                    }
+                    return node;
+                });
+            };
+            setFiles(updateFilesInTree);
+        } catch (error) {
+            console.error("Failed to fetch file content:", error);
+        }
+    };
+
 
     return (
         <div className="flex h-svh">
             <div className="w-72 border-r bg-card flex flex-col">
                 <RepoExplorer
-                    repositories={[repo]}
-                    onSelectFile={setSelectedFile}
+                    repo={repo}
+                    files={files}
+                    onSelectFile={handleSelectFile}
                     selectedFile={selectedFile}
+                    loading={loadingFiles}
                 />
             </div>
             <div className="flex-1 flex flex-col bg-background">
@@ -90,7 +255,20 @@ const RepoView = ({ repo, onBack }: { repo: Repository, onBack: () => void }) =>
 };
 
 export default function Home() {
+    const { data: session, status } = useSession();
     const [selectedRepo, setSelectedRepo] = useState<Repository | null>(null);
+
+    if (status === "loading") {
+        return (
+             <div className="flex items-center justify-center h-svh">
+                <Loader2 className="h-12 w-12 animate-spin text-muted-foreground" />
+            </div>
+        );
+    }
+    
+    if (status === "unauthenticated") {
+        return <UnauthenticatedView />;
+    }
 
     if (selectedRepo) {
         return <RepoView repo={selectedRepo} onBack={() => setSelectedRepo(null)} />;

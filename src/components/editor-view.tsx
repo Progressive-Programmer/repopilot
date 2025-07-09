@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState, useTransition, useEffect, useMemo } from 'react';
@@ -7,7 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Wand2, Loader2, BotMessageSquare } from 'lucide-react';
-import type { File as FileType } from '@/lib/mock-data';
+import type { File as FileType } from '@/app/page';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 
@@ -21,6 +22,10 @@ const ReviewPanel = ({ file }: { file: FileType }) => {
   const { toast } = useToast();
 
   const handleGenerateReview = () => {
+    if (!file.content) {
+        toast({ variant: "destructive", title: "Error", description: "File content is not loaded." });
+        return;
+    }
     startTransition(async () => {
         setReview(null);
         const result = await runCodeReview({ code: file.content, language: file.language });
@@ -88,6 +93,15 @@ export function EditorView({ selectedFile }: EditorViewProps) {
         </div>
       );
     }
+
+    if (selectedFile.content === '') {
+       return (
+        <div className="flex h-full items-center justify-center bg-background">
+          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        </div>
+      );
+    }
+
     return (
       <div className="grid grid-cols-1 lg:grid-cols-2 h-full">
           <div className="h-full flex flex-col relative">
