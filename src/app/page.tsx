@@ -86,7 +86,7 @@ const RepoDashboard = ({ session, onSelectRepo }: { session: Session | null, onS
             setLoading(true);
             setError(null);
             try {
-                const res = await fetch('/api/github/user/repos?sort=pushed&per_page=100');
+                const res = await fetch('/api/github/user/repos?sort=created&per_page=100');
                 if (res.ok) {
                     const data = await res.json();
                     setRepos(data);
@@ -149,7 +149,7 @@ const RepoDashboard = ({ session, onSelectRepo }: { session: Session | null, onS
                                 </CardDescription>
                             </CardHeader>
                             <CardFooter>
-                                <Button variant="secondary" size="sm" className="w-full" onClick={() => onSelectRepo(repo)}>
+                                <Button variant="outline" size="sm" className="w-full" onClick={() => onSelectRepo(repo)}>
                                     <Code className="mr-2 h-4 w-4" />
                                     Explore Code
                                 </Button>
