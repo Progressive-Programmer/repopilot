@@ -15,8 +15,12 @@ export async function GET(
   const accessToken = (session as any).accessToken;
   const path = params.path.join('/');
   
+  // Forward search params from the incoming request to the GitHub API
+  const { searchParams } = new URL(request.url);
+  const githubApiUrl = `https://api.github.com/${path}?${searchParams.toString()}`;
+  
   try {
-    const response = await fetch(`https://api.github.com/${path}`, {
+    const response = await fetch(githubApiUrl, {
       headers: {
         Authorization: `Bearer ${accessToken}`,
         'Content-Type': 'application/json',
@@ -33,9 +37,14 @@ export async function GET(
     if (!responseText) {
         return new NextResponse(null, { status: 204 }); 
     }
+    
+    // Extract the Link header for pagination
+    const linkHeader = response.headers.get('Link');
 
     const data = JSON.parse(responseText);
-    return NextResponse.json(data);
+
+    // Return both data and pagination info
+    return NextResponse.json({ data, linkHeader });
     
   } catch (error) {
     console.error('GitHub API proxy error:', error);

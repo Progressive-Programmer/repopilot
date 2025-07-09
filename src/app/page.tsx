@@ -75,42 +75,59 @@ const UnauthenticatedView = () => (
 const RepoDashboard = ({ session, onSelectRepo }: { session: Session | null, onSelectRepo: (repo: Repository) => void }) => {
     const [repos, setRepos] = useState<Repository[]>([]);
     const [loading, setLoading] = useState(true);
+    const [loadingMore, setLoadingMore] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [searchQuery, setSearchQuery] = useState('');
+    const [page, setPage] = useState(1);
+    const [hasMore, setHasMore] = useState(false);
 
-    useEffect(() => {
-        if (!session) {
-            setLoading(false);
-            return;
-        }
-
-        async function fetchRepos() {
+    const fetchRepos = useCallback(async (pageNum: number) => {
+        if (pageNum === 1) {
             setLoading(true);
-            setError(null);
-            try {
-                const res = await fetch('/api/github/user/repos?sort=created&per_page=100');
-                if (res.ok) {
-                    const data = await res.json();
-                    setRepos(data);
-                } else {
-                    const errorData = await res.json().catch(() => null);
-                    setError(errorData?.message || "Failed to fetch repositories.");
-                    setRepos([]);
-                }
-            } catch (error) {
-                console.error(error);
-                setError("An unexpected network error occurred.");
-            } finally {
+        } else {
+            setLoadingMore(true);
+        }
+        setError(null);
+        try {
+            const res = await fetch(`/api/github/user/repos?sort=created&per_page=100&page=${pageNum}`);
+            if (res.ok) {
+                const { data, linkHeader } = await res.json();
+                setRepos(prev => pageNum === 1 ? data : [...prev, ...data]);
+                setHasMore(linkHeader?.includes('rel="next"') || false);
+            } else {
+                const errorData = await res.json().catch(() => null);
+                setError(errorData?.message || "Failed to fetch repositories.");
+                setRepos([]);
+            }
+        } catch (error) {
+            console.error(error);
+            setError("An unexpected network error occurred.");
+        } finally {
+            if (pageNum === 1) {
                 setLoading(false);
+            } else {
+                setLoadingMore(false);
             }
         }
-        fetchRepos();
-    }, [session]);
+    }, []);
+
+    useEffect(() => {
+        if (session) {
+            fetchRepos(1);
+        } else {
+            setLoading(false);
+        }
+    }, [session, fetchRepos]);
+
+    const handleLoadMore = () => {
+        const nextPage = page + 1;
+        setPage(nextPage);
+        fetchRepos(nextPage);
+    };
     
     const filteredRepos = repos.filter(repo =>
         repo.name.toLowerCase().includes(searchQuery.toLowerCase())
     );
-
 
     if (loading) {
         return (
@@ -173,6 +190,18 @@ const RepoDashboard = ({ session, onSelectRepo }: { session: Session | null, onS
                         </Card>
                     ))}
                 </div>
+                
+                {hasMore && !searchQuery && (
+                    <div className="mt-8 text-center">
+                        <Button onClick={handleLoadMore} disabled={loadingMore}>
+                            {loadingMore ? (
+                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            ) : null}
+                            Load More
+                        </Button>
+                    </div>
+                )}
+
                 {!error && filteredRepos.length === 0 && !loading && (
                     <div className="py-16 text-center text-muted-foreground">
                         {searchQuery ? (
