@@ -28,7 +28,7 @@ export interface File {
   type: 'file';
   path: string;
   content: string;
-  language: string; // You might need to determine this based on file extension
+  language: string; 
 }
 
 export interface Folder {
@@ -49,9 +49,12 @@ async function getRepoContents(repoFullName: string, path: string = ''): Promise
             const errorData = await res.json().catch(() => ({ message: 'Failed to fetch repository contents' }));
             return { data: null, error: errorData.message || 'An unknown error occurred.' };
         }
+        if (res.status === 204) {
+            return { data: [], error: null }; // Handle empty directory
+        }
         const contents = await res.json();
 
-        const nodes = contents.map((item: any) => {
+        const nodes: FileSystemNode[] = contents.map((item: any): FileSystemNode => {
             if (item.type === 'dir') {
                 return {
                     name: item.name,

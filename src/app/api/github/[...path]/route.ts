@@ -28,10 +28,10 @@ export async function GET(
       return NextResponse.json({ message: errorData.message || 'An error occurred with the GitHub API' }, { status: response.status });
     }
     
-    // Handle cases where response might be empty
+    // Handle cases where response might be empty (e.g., 204 No Content)
     const responseText = await response.text();
     if (!responseText) {
-        return new NextResponse(null, { status: 204 }); // No Content
+        return new NextResponse(null, { status: 204 }); 
     }
 
     const data = JSON.parse(responseText);
