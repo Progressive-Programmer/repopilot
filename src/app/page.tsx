@@ -1,13 +1,14 @@
 
 "use client";
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useSession, signIn, type Session } from "next-auth/react";
-import { Github, GitBranch, Loader2, AlertTriangle, Code } from 'lucide-react';
+import { Github, GitBranch, Loader2, AlertTriangle, Code, ArrowLeft } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { GithubUI } from '@/components/github-ui';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { RepoView } from '@/app/repo-view';
 
 export interface Repository {
   id: number;
@@ -18,7 +19,29 @@ export interface Repository {
   owner: {
     login: string;
   };
+  default_branch: string;
 }
+
+export interface File {
+  name: string;
+  path: string;
+  type: 'file';
+  content: string;
+  language: string;
+  url: string;
+  sha: string;
+}
+
+export interface Folder {
+  name: string;
+  path: string;
+  type: 'folder';
+  children: FileSystemNode[];
+  url: string;
+  sha: string;
+}
+
+export type FileSystemNode = File | Folder;
 
 const Logo = () => (
     <div className="flex items-center gap-2">
@@ -48,7 +71,7 @@ const UnauthenticatedView = () => (
     </div>
 );
 
-const RepoDashboard = ({ session }: { session: Session | null }) => {
+const RepoDashboard = ({ session, onSelectRepo }: { session: Session | null, onSelectRepo: (repo: Repository) => void }) => {
     const [repos, setRepos] = useState<Repository[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -82,9 +105,6 @@ const RepoDashboard = ({ session }: { session: Session | null }) => {
         fetchRepos();
     }, [session]);
 
-    const handleOpenInVSCode = (repo: Repository) => {
-        window.location.href = `vscode://vscode.git/clone?url=${repo.clone_url}`;
-    };
 
     if (loading) {
         return (
@@ -115,7 +135,7 @@ const RepoDashboard = ({ session }: { session: Session | null }) => {
                         <AlertDescription>{error}</AlertDescription>
                     </Alert>
                 )}
-                <h2 className="text-2xl font-bold tracking-tight mb-4">Repositories</h2>
+                <h2 className="text-2xl font-bold tracking-tight mb-4">Select a Repository</h2>
                 <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
                     {repos.map(repo => (
                         <Card key={repo.id} className="flex flex-col">
@@ -124,14 +144,14 @@ const RepoDashboard = ({ session }: { session: Session | null }) => {
                                     <GitBranch className="h-5 w-5" />
                                     {repo.name}
                                 </CardTitle>
-                                <CardDescription className="flex-grow">
+                                <CardDescription className="flex-grow h-12 overflow-hidden text-ellipsis">
                                     {repo.description || "No description."}
                                 </CardDescription>
                             </CardHeader>
                             <CardFooter>
-                                <Button variant="secondary" size="sm" className="w-full" onClick={() => handleOpenInVSCode(repo)}>
+                                <Button variant="secondary" size="sm" className="w-full" onClick={() => onSelectRepo(repo)}>
                                     <Code className="mr-2 h-4 w-4" />
-                                    Open in VS Code
+                                    Explore Code
                                 </Button>
                             </CardFooter>
                         </Card>
@@ -152,6 +172,11 @@ const RepoDashboard = ({ session }: { session: Session | null }) => {
 
 export default function Home() {
     const { data: session, status } = useSession();
+    const [selectedRepo, setSelectedRepo] = useState<Repository | null>(null);
+
+    const handleBackToDashboard = useCallback(() => {
+        setSelectedRepo(null);
+    }, []);
 
     if (status === "loading") {
         return (
@@ -165,5 +190,25 @@ export default function Home() {
         return <UnauthenticatedView />;
     }
 
-    return <RepoDashboard session={session} />;
+    if (selectedRepo) {
+        return (
+            <div className="flex flex-col h-svh bg-background">
+                <header className="flex items-center justify-between p-4 border-b h-16 shrink-0">
+                    <div className="flex items-center gap-4">
+                        <Button variant="outline" size="sm" onClick={handleBackToDashboard}>
+                            <ArrowLeft className="mr-2 h-4 w-4" />
+                            Back
+                        </Button>
+                        <Logo />
+                    </div>
+                    <GithubUI />
+                </header>
+                <main className="flex-1 overflow-hidden">
+                    <RepoView repo={selectedRepo} />
+                </main>
+            </div>
+        );
+    }
+
+    return <RepoDashboard session={session} onSelectRepo={setSelectedRepo} />;
 }
