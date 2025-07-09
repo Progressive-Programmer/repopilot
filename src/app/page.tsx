@@ -86,7 +86,7 @@ const RepoDashboard = ({ session, onSelectRepo }: { session: Session | null, onS
             setLoading(true);
             setError(null);
             try {
-                const res = await fetch('/api/github/user/repos?sort=created&per_page=100');
+                const res = await fetch('/api/github/user/repos?sort=pushed&per_page=100');
                 if (res.ok) {
                     const data = await res.json();
                     setRepos(data);
