@@ -236,5 +236,3 @@ export default function Home() {
 
     return <RepoDashboard session={session} onSelectRepo={setSelectedRepo} />;
 }
-
-    
