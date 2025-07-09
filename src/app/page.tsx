@@ -3,12 +3,13 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useSession, signIn, type Session } from "next-auth/react";
-import { Github, GitBranch, Loader2, AlertTriangle, Code, ArrowLeft } from 'lucide-react';
+import { Github, GitBranch, Loader2, AlertTriangle, Code, ArrowLeft, Search } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { GithubUI } from '@/components/github-ui';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { RepoView } from '@/app/repo-view';
+import { Input } from '@/components/ui/input';
 
 export interface Repository {
   id: number;
@@ -75,6 +76,7 @@ const RepoDashboard = ({ session, onSelectRepo }: { session: Session | null, onS
     const [repos, setRepos] = useState<Repository[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+    const [searchQuery, setSearchQuery] = useState('');
 
     useEffect(() => {
         if (!session) {
@@ -104,6 +106,10 @@ const RepoDashboard = ({ session, onSelectRepo }: { session: Session | null, onS
         }
         fetchRepos();
     }, [session]);
+    
+    const filteredRepos = repos.filter(repo =>
+        repo.name.toLowerCase().includes(searchQuery.toLowerCase())
+    );
 
 
     if (loading) {
@@ -136,8 +142,18 @@ const RepoDashboard = ({ session, onSelectRepo }: { session: Session | null, onS
                     </Alert>
                 )}
                 <h2 className="text-2xl font-bold tracking-tight mb-4">Select a Repository</h2>
+                 <div className="relative mb-6">
+                    <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                    <Input
+                        type="search"
+                        placeholder="Search repositories..."
+                        className="w-full pl-10"
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                    />
+                </div>
                 <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                    {repos.map(repo => (
+                    {filteredRepos.map(repo => (
                         <Card key={repo.id} className="flex flex-col">
                             <CardHeader>
                                 <CardTitle className="flex items-center gap-2 text-xl">
@@ -157,11 +173,17 @@ const RepoDashboard = ({ session, onSelectRepo }: { session: Session | null, onS
                         </Card>
                     ))}
                 </div>
-                {!error && repos.length === 0 && !loading && (
-                     <div className="text-center text-muted-foreground py-16">
-                        <p>No repositories found.</p>
-                        <p className="text-sm">Make sure you have granted access to your repositories.</p>
-                     </div>
+                {!error && filteredRepos.length === 0 && !loading && (
+                    <div className="py-16 text-center text-muted-foreground">
+                        {searchQuery ? (
+                            <p>No repositories found for "{searchQuery}".</p>
+                        ) : (
+                            <>
+                                <p>No repositories found.</p>
+                                <p className="text-sm">Make sure you have granted access to your repositories.</p>
+                            </>
+                        )}
+                    </div>
                 )}
             </div>
         </main>
@@ -214,3 +236,5 @@ export default function Home() {
 
     return <RepoDashboard session={session} onSelectRepo={setSelectedRepo} />;
 }
+
+    
