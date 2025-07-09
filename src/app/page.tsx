@@ -3,101 +3,22 @@
 
 import { useState, useEffect } from 'react';
 import { useSession, signIn, type Session } from "next-auth/react";
-import { Github, GitBranch, ArrowLeft, Loader2, AlertTriangle } from 'lucide-react';
+import { Github, GitBranch, Loader2, AlertTriangle, Code } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
-import { EditorView } from '@/components/editor-view';
-import { RepoExplorer } from '@/components/repo-explorer';
 import { GithubUI } from '@/components/github-ui';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { useToast } from '@/hooks/use-toast';
 
-// Simplified types for GitHub API responses
 export interface Repository {
   id: number;
   name: string;
   full_name: string;
+  clone_url: string;
   description: string | null;
   owner: {
     login: string;
   };
 }
-
-export interface File {
-  name: string;
-  type: 'file';
-  path: string;
-  content: string;
-  language: string; 
-}
-
-export interface Folder {
-    name: string;
-    type: 'folder';
-    path: string;
-    children: (File | Folder)[];
-}
-
-export type FileSystemNode = File | Folder;
-
-type FetchResult<T> = { data: T; error: null } | { data: null; error: string };
-
-async function getRepoContents(repoFullName: string, path: string = ''): Promise<FetchResult<FileSystemNode[]>> {
-    try {
-        const res = await fetch(`/api/github/repos/${repoFullName}/contents/${path}`);
-        if (!res.ok) {
-            const errorData = await res.json().catch(() => ({ message: 'Failed to fetch repository contents' }));
-            return { data: null, error: errorData.message || 'An unknown error occurred.' };
-        }
-        if (res.status === 204) {
-            return { data: [], error: null }; // Handle empty directory
-        }
-        const contents = await res.json();
-
-        const nodes: FileSystemNode[] = contents.map((item: any): FileSystemNode => {
-            if (item.type === 'dir') {
-                return {
-                    name: item.name,
-                    type: 'folder',
-                    path: item.path,
-                    children: [], // Initially empty, can be fetched on-demand
-                };
-            } else {
-                return {
-                    name: item.name,
-                    type: 'file',
-                    path: item.path,
-                    content: '', // Content will be fetched when the file is selected
-                    language: item.name.split('.').pop() || 'plaintext',
-                };
-            }
-        });
-        return { data: nodes, error: null };
-    } catch (e) {
-        console.error(e);
-        return { data: null, error: 'An unexpected network error occurred.' };
-    }
-}
-
-async function getFileContent(repoFullName: string, path: string): Promise<FetchResult<string>> {
-     try {
-        const res = await fetch(`/api/github/repos/${repoFullName}/contents/${path}`);
-        if (!res.ok) {
-            const errorData = await res.json().catch(() => ({ message: 'Failed to fetch file content' }));
-            return { data: null, error: errorData.message || 'An unknown error occurred.'};
-        }
-        const fileData = await res.json();
-        if (typeof fileData.content !== 'string' || fileData.encoding !== 'base64') {
-            return { data: null, error: 'Invalid file data received from GitHub API' };
-        }
-        // `atob` is available in modern browsers and worker threads
-        return { data: atob(fileData.content), error: null };
-    } catch (e) {
-        console.error(e);
-        return { data: null, error: 'An unexpected network error occurred.' };
-    }
-}
-
 
 const Logo = () => (
     <div className="flex items-center gap-2">
@@ -127,7 +48,7 @@ const UnauthenticatedView = () => (
     </div>
 );
 
-const RepoDashboard = ({ onSelectRepo, session }: { onSelectRepo: (repo: Repository) => void, session: Session | null }) => {
+const RepoDashboard = ({ session }: { session: Session | null }) => {
     const [repos, setRepos] = useState<Repository[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -142,7 +63,7 @@ const RepoDashboard = ({ onSelectRepo, session }: { onSelectRepo: (repo: Reposit
             setLoading(true);
             setError(null);
             try {
-                const res = await fetch('/api/github/user/repos');
+                const res = await fetch('/api/github/user/repos?sort=pushed');
                 if (res.ok) {
                     const data = await res.json();
                     setRepos(data);
@@ -160,6 +81,10 @@ const RepoDashboard = ({ onSelectRepo, session }: { onSelectRepo: (repo: Reposit
         }
         fetchRepos();
     }, [session]);
+
+    const handleOpenInVSCode = (repo: Repository) => {
+        window.location.href = `vscode://vscode.git/clone?url=${repo.clone_url}`;
+    };
 
     if (loading) {
         return (
@@ -193,19 +118,20 @@ const RepoDashboard = ({ onSelectRepo, session }: { onSelectRepo: (repo: Reposit
                 <h2 className="text-2xl font-bold tracking-tight mb-4">Repositories</h2>
                 <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
                     {repos.map(repo => (
-                        <Card key={repo.id} className="hover:shadow-md transition-shadow cursor-pointer" onClick={() => onSelectRepo(repo)}>
+                        <Card key={repo.id} className="flex flex-col">
                             <CardHeader>
                                 <CardTitle className="flex items-center gap-2 text-xl">
                                     <GitBranch className="h-5 w-5" />
                                     {repo.name}
                                 </CardTitle>
-                                <CardDescription>
+                                <CardDescription className="flex-grow">
                                     {repo.description || "No description."}
                                 </CardDescription>
                             </CardHeader>
                             <CardFooter>
-                                <Button variant="secondary" size="sm" className="w-full">
-                                    Open Repository
+                                <Button variant="secondary" size="sm" className="w-full" onClick={() => handleOpenInVSCode(repo)}>
+                                    <Code className="mr-2 h-4 w-4" />
+                                    Open in VS Code
                                 </Button>
                             </CardFooter>
                         </Card>
@@ -223,90 +149,9 @@ const RepoDashboard = ({ onSelectRepo, session }: { onSelectRepo: (repo: Reposit
     );
 };
 
-const RepoView = ({ repo, onBack }: { repo: Repository, onBack: () => void }) => {
-    const [selectedFile, setSelectedFile] = useState<File | null>(null);
-    const [files, setFiles] = useState<FileSystemNode[]>([]);
-    const [loadingFiles, setLoadingFiles] = useState(true);
-    const { toast } = useToast();
-
-
-    useEffect(() => {
-        setLoadingFiles(true);
-        getRepoContents(repo.full_name)
-            .then(result => {
-                 if (result.error) {
-                    toast({ variant: "destructive", title: "Could not load repository", description: result.error });
-                    setFiles([]);
-                } else {
-                    setFiles(result.data);
-                }
-            })
-            .finally(() => setLoadingFiles(false));
-    }, [repo.full_name, toast]);
-
-    const handleSelectFile = async (file: File) => {
-        if (file.content) {
-            setSelectedFile(file);
-            return;
-        }
-        
-        const result = await getFileContent(repo.full_name, file.path);
-        if (result.error) {
-            toast({ variant: "destructive", title: "Error loading file", description: result.error });
-            return;
-        }
-        
-        const updatedFile = { ...file, content: result.data };
-        setSelectedFile(updatedFile);
-
-        // Update the file in the tree
-        const updateFilesInTree = (nodes: FileSystemNode[]): FileSystemNode[] => {
-            return nodes.map(node => {
-                if (node.type === 'file' && node.path === file.path) {
-                    return updatedFile;
-                }
-                if (node.type === 'folder' && file.path.startsWith(node.path)) {
-                        return { ...node, children: updateFilesInTree(node.children) };
-                }
-                return node;
-            });
-        };
-        setFiles(updateFilesInTree);
-    };
-
-
-    return (
-        <div className="flex h-svh">
-            <div className="w-72 border-r bg-card flex flex-col">
-                <RepoExplorer
-                    repo={repo}
-                    files={files}
-                    onSelectFile={handleSelectFile}
-                    selectedFile={selectedFile}
-                    loading={loadingFiles}
-                />
-            </div>
-            <div className="flex-1 flex flex-col bg-background">
-                <header className="flex items-center justify-between p-4 border-b h-16 shrink-0">
-                    <div className="flex items-center gap-4">
-                        <Button variant="ghost" size="icon" onClick={onBack}>
-                            <ArrowLeft className="h-5 w-5" />
-                        </Button>
-                        <h2 className="text-lg font-semibold">{repo.name}</h2>
-                    </div>
-                    <GithubUI />
-                </header>
-                <main className="flex-1 overflow-hidden">
-                    <EditorView selectedFile={selectedFile} />
-                </main>
-            </div>
-        </div>
-    );
-};
 
 export default function Home() {
     const { data: session, status } = useSession();
-    const [selectedRepo, setSelectedRepo] = useState<Repository | null>(null);
 
     if (status === "loading") {
         return (
@@ -320,9 +165,5 @@ export default function Home() {
         return <UnauthenticatedView />;
     }
 
-    if (selectedRepo) {
-        return <RepoView repo={selectedRepo} onBack={() => setSelectedRepo(null)} />;
-    }
-
-    return <RepoDashboard onSelectRepo={setSelectedRepo} session={session} />;
+    return <RepoDashboard session={session} />;
 }
