@@ -3,11 +3,12 @@
 
 import type { FC } from 'react';
 import React, { useState } from 'react';
-import { ChevronRight, File as FileIcon, Folder as FolderIcon, GitBranch, Loader2 } from 'lucide-react';
+import { ChevronRight, Folder as FolderIcon, GitBranch, Loader2 } from 'lucide-react';
 import type { Repository, FileSystemNode, File as FileType } from '@/app/page';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { FileIcon } from './file-icon';
 
 interface RepoExplorerProps {
   repo: Repository;
@@ -77,7 +78,7 @@ const NodeDisplay: FC<{
         style={{ paddingLeft: `${level * 1}rem` }}
         onClick={() => onSelectFile(node as FileType)}
       >
-        <FileIcon className="h-4 w-4 mr-2 shrink-0 text-foreground/60" />
+        <FileIcon filename={node.name} className="h-4 w-4 mr-2 shrink-0 text-foreground/60" />
         <span className="truncate">{node.name}</span>
       </Button>
     </div>
