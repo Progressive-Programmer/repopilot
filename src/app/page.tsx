@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useSession, signIn, type Session } from "next-auth/react";
 import { Github, GitBranch, Loader2, AlertTriangle, Code, ArrowLeft, Search, Star, GitFork, Eye } from 'lucide-react';
 import { Button } from '@/components/ui/button';
