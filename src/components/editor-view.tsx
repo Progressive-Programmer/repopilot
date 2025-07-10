@@ -8,10 +8,11 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Wand2, Loader2, BotMessageSquare, FileCode, Braces, GitCommitHorizontal, AlertCircle, TriangleAlert, Info } from 'lucide-react';
+import { Wand2, Loader2, BotMessageSquare, FileCode, Braces, GitCommitHorizontal, AlertCircle, TriangleAlert, Info, Lightbulb } from 'lucide-react';
 import type { File as FileType, Repository } from '@/app/page';
 import { useToast } from '@/hooks/use-toast';
-import Editor, { type OnMount } from '@monaco-editor/react';
+import Editor, { type OnMount, type Monaco } from '@monaco-editor/react';
+import * as monaco from 'monaco-editor';
 import {
   ResizableHandle,
   ResizablePanel,
@@ -33,6 +34,7 @@ import type { Suggestion } from '@/ai/flows/generate-code-review';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
+import { DiffEditor } from '@monaco-editor/react';
 
 interface EditorViewProps {
   repo: Repository;
@@ -70,10 +72,11 @@ const SeverityBadge = ({ severity }: { severity: Suggestion['severity'] }) => {
 };
 
 
-const ReviewPanel = ({ file }: { file: FileType }) => {
+const ReviewPanel = ({ file, editorRef, monacoRef }: { file: FileType, editorRef: React.RefObject<monaco.editor.IStandaloneCodeEditor | null>, monacoRef: React.RefObject<Monaco | null> }) => {
   const [isPending, startTransition] = useTransition();
   const [review, setReview] = useState<Suggestion[] | null>(null);
   const { toast } = useToast();
+  const { theme } = useTheme();
 
   const handleGenerateReview = () => {
     if (!file.content) {
@@ -90,6 +93,40 @@ const ReviewPanel = ({ file }: { file: FileType }) => {
             setReview(result.review || null);
         }
     });
+  };
+
+  const handleApplySuggestion = (suggestion: Suggestion) => {
+    const editor = editorRef.current;
+    if (!editor || !suggestion.suggestion) return;
+
+    const [startLine, endLine] = suggestion.lines.split('-').map(Number);
+    const range = new monaco.Range(startLine, 1, endLine, editor.getModel()?.getLineMaxColumn(endLine) || 1);
+
+    editor.executeEdits('ai-suggestion', [{
+        range: range,
+        text: suggestion.suggestion,
+        forceMoveMarkers: true,
+    }]);
+
+     toast({
+      title: "Suggestion Applied",
+      description: "The code has been updated in the editor.",
+    });
+  };
+
+  const getOriginalCode = (suggestion: Suggestion): string => {
+    const editor = editorRef.current;
+    if (!editor) return '';
+
+    const model = editor.getModel();
+    if (!model) return '';
+
+    const [startLine, endLine] = suggestion.lines.split('-').map(Number);
+    const lines: string[] = [];
+    for (let i = startLine; i <= endLine; i++) {
+      lines.push(model.getLineContent(i));
+    }
+    return lines.join('\n');
   };
 
   useEffect(() => {
@@ -123,17 +160,41 @@ const ReviewPanel = ({ file }: { file: FileType }) => {
             {!isPending && review && (
               <Accordion type="multiple" className="w-full space-y-2">
                 {review.map((suggestion, index) => (
-                    <AccordionItem key={index} value={`item-${index}`} className="bg-muted/50 border rounded-md px-3">
-                       <AccordionTrigger className="text-sm text-left hover:no-underline py-3">
-                           <div className="flex items-center gap-3">
+                    <AccordionItem key={index} value={`item-${index}`} className="bg-card border rounded-md">
+                       <AccordionTrigger className="text-sm text-left hover:no-underline px-3 py-3">
+                           <div className="flex items-center gap-3 w-full">
                                 <SeverityIcon severity={suggestion.severity} />
-                                <span className="flex-1 font-medium">{suggestion.title}</span>
+                                <span className="flex-1 font-medium text-left">{suggestion.title}</span>
                                 <SeverityBadge severity={suggestion.severity} />
                            </div>
                        </AccordionTrigger>
-                       <AccordionContent className="p-4 border-t text-muted-foreground text-sm">
-                           <p className="font-semibold text-foreground mb-2">Lines: {suggestion.lines}</p>
+                       <AccordionContent className="p-4 border-t text-muted-foreground text-sm space-y-4">
+                           <p className="font-semibold text-foreground">Lines: {suggestion.lines}</p>
                            <p className="whitespace-pre-wrap">{suggestion.description}</p>
+                           {suggestion.suggestion && (
+                               <div className="space-y-2">
+                                  <div className='rounded-lg border overflow-hidden'>
+                                    <DiffEditor
+                                        height="150px"
+                                        language={file.language}
+                                        original={getOriginalCode(suggestion)}
+                                        modified={suggestion.suggestion}
+                                        theme={theme === 'dark' ? 'vs-dark' : 'vs-light'}
+                                        options={{ 
+                                            readOnly: true, 
+                                            renderSideBySide: false, 
+                                            minimap: { enabled: false },
+                                            scrollBeyondLastLine: false,
+                                            fontFamily: "var(--font-code)",
+                                        }}
+                                    />
+                                  </div>
+                                   <Button size="sm" onClick={() => handleApplySuggestion(suggestion)}>
+                                       <Lightbulb className="mr-2 h-4 w-4" />
+                                       Apply Suggestion
+                                   </Button>
+                               </div>
+                           )}
                        </AccordionContent>
                    </AccordionItem>
                 ))}
@@ -250,7 +311,8 @@ const CommitDialog = ({
 
 export function EditorView({ repo, selectedFile, onCommitSuccess }: EditorViewProps) {
   const { theme } = useTheme();
-  const editorRef = useRef<any>(null);
+  const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
+  const monacoRef = useRef<Monaco | null>(null);
   const [editorContent, setEditorContent] = useState<string>('');
   const [isDirty, setIsDirty] = useState(false);
 
@@ -271,11 +333,12 @@ export function EditorView({ repo, selectedFile, onCommitSuccess }: EditorViewPr
 
   const handleEditorDidMount: OnMount = (editor, monaco) => {
     editorRef.current = editor;
+    monacoRef.current = monaco;
   };
 
   const handleFormatCode = () => {
     if (editorRef.current) {
-      editorRef.current.getAction('editor.action.formatDocument').run();
+      editorRef.current.getAction('editor.action.formatDocument')?.run();
     }
   };
 
@@ -339,7 +402,7 @@ export function EditorView({ repo, selectedFile, onCommitSuccess }: EditorViewPr
       </ResizablePanel>
       <ResizableHandle withHandle />
       <ResizablePanel defaultSize={25} minSize={20}>
-        <ReviewPanel file={{...selectedFile, content: editorContent}} />
+        <ReviewPanel file={{...selectedFile, content: editorContent}} editorRef={editorRef} monacoRef={monacoRef} />
       </ResizablePanel>
     </ResizablePanelGroup>
   );
