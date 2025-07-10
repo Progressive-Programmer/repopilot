@@ -13,7 +13,7 @@
 import {ai} from '@/ai/genkit';
 import {z} from 'genkit';
 
-export const SuggestionSchema = z.object({
+const SuggestionSchema = z.object({
   title: z.string().describe('A short, descriptive title for the suggestion.'),
   description: z.string().describe('A detailed explanation of the issue and why the change is recommended.'),
   severity: z.enum(['Critical', 'Warning', 'Improvement', 'Info']).describe('The severity of the issue.'),

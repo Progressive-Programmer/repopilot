@@ -3,6 +3,7 @@
 
 import { useState, useTransition, useEffect, useRef } from 'react';
 import { useTheme } from 'next-themes';
+import dynamic from 'next/dynamic';
 import { runCodeReview, commitFile } from '@/app/actions';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -11,8 +12,8 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Wand2, Loader2, BotMessageSquare, FileCode, Braces, GitCommitHorizontal, AlertCircle, TriangleAlert, Info, Lightbulb } from 'lucide-react';
 import type { File as FileType, Repository } from '@/app/page';
 import { useToast } from '@/hooks/use-toast';
-import Editor, { type OnMount, type Monaco } from '@monaco-editor/react';
-import * as monaco from 'monaco-editor';
+import type { OnMount, Monaco } from '@monaco-editor/react';
+import type * as monaco from 'monaco-editor';
 import {
   ResizableHandle,
   ResizablePanel,
@@ -34,7 +35,17 @@ import type { Suggestion } from '@/ai/flows/generate-code-review';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
-import { DiffEditor } from '@monaco-editor/react';
+
+const Editor = dynamic(() => import('@monaco-editor/react'), {
+  ssr: false,
+  loading: () => <Skeleton className="w-full h-full" />,
+});
+
+const DiffEditor = dynamic(() => import('@monaco-editor/react').then(mod => mod.DiffEditor), {
+  ssr: false,
+  loading: () => <Skeleton className="w-full h-full" />,
+});
+
 
 interface EditorViewProps {
   repo: Repository;
@@ -72,7 +83,7 @@ const SeverityBadge = ({ severity }: { severity: Suggestion['severity'] }) => {
 };
 
 
-const ReviewPanel = ({ file, editorRef, monacoRef }: { file: FileType, editorRef: React.RefObject<monaco.editor.IStandaloneCodeEditor | null>, monacoRef: React.RefObject<Monaco | null> }) => {
+const ReviewPanel = ({ file, editorRef }: { file: FileType, editorRef: React.RefObject<monaco.editor.IStandaloneCodeEditor | null> }) => {
   const [isPending, startTransition] = useTransition();
   const [review, setReview] = useState<Suggestion[] | null>(null);
   const { toast } = useToast();
@@ -312,7 +323,6 @@ const CommitDialog = ({
 export function EditorView({ repo, selectedFile, onCommitSuccess }: EditorViewProps) {
   const { theme } = useTheme();
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
-  const monacoRef = useRef<Monaco | null>(null);
   const [editorContent, setEditorContent] = useState<string>('');
   const [isDirty, setIsDirty] = useState(false);
 
@@ -331,9 +341,8 @@ export function EditorView({ repo, selectedFile, onCommitSuccess }: EditorViewPr
     }
   };
 
-  const handleEditorDidMount: OnMount = (editor, monaco) => {
+  const handleEditorDidMount: OnMount = (editor, monacoInstance) => {
     editorRef.current = editor;
-    monacoRef.current = monaco;
   };
 
   const handleFormatCode = () => {
@@ -402,7 +411,7 @@ export function EditorView({ repo, selectedFile, onCommitSuccess }: EditorViewPr
       </ResizablePanel>
       <ResizableHandle withHandle />
       <ResizablePanel defaultSize={25} minSize={20}>
-        <ReviewPanel file={{...selectedFile, content: editorContent}} editorRef={editorRef} monacoRef={monacoRef} />
+        <ReviewPanel file={{...selectedFile, content: editorContent}} editorRef={editorRef} />
       </ResizablePanel>
     </ResizablePanelGroup>
   );
