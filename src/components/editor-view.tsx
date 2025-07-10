@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Wand2, Loader2, BotMessageSquare, FileCode, Braces, GitCommitHorizontal } from 'lucide-react';
+import { Wand2, Loader2, BotMessageSquare, FileCode, Braces, GitCommitHorizontal, AlertCircle, TriangleAlert, Info } from 'lucide-react';
 import type { File as FileType, Repository } from '@/app/page';
 import { useToast } from '@/hooks/use-toast';
 import Editor, { type OnMount } from '@monaco-editor/react';
@@ -29,7 +29,10 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-
+import type { Suggestion } from '@/ai/flows/generate-code-review';
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
+import { Badge } from '@/components/ui/badge';
+import { cn } from '@/lib/utils';
 
 interface EditorViewProps {
   repo: Repository;
@@ -37,9 +40,39 @@ interface EditorViewProps {
   onCommitSuccess: (newFileState: FileType) => void;
 }
 
+const SeverityIcon = ({ severity }: { severity: Suggestion['severity'] }) => {
+    switch (severity) {
+        case 'Critical':
+            return <AlertCircle className="h-4 w-4 text-red-500" />;
+        case 'Warning':
+            return <TriangleAlert className="h-4 w-4 text-yellow-500" />;
+        case 'Improvement':
+            return <Wand2 className="h-4 w-4 text-blue-500" />;
+        default:
+            return <Info className="h-4 w-4 text-gray-500" />;
+    }
+};
+
+const SeverityBadge = ({ severity }: { severity: Suggestion['severity'] }) => {
+    return (
+        <Badge
+            variant="outline"
+            className={cn(
+                'text-xs',
+                severity === 'Critical' && 'border-red-500/50 text-red-500',
+                severity === 'Warning' && 'border-yellow-500/50 text-yellow-500',
+                severity === 'Improvement' && 'border-blue-500/50 text-blue-500'
+            )}
+        >
+            {severity}
+        </Badge>
+    );
+};
+
+
 const ReviewPanel = ({ file }: { file: FileType }) => {
   const [isPending, startTransition] = useTransition();
-  const [review, setReview] = useState<string | null>(null);
+  const [review, setReview] = useState<Suggestion[] | null>(null);
   const { toast } = useToast();
 
   const handleGenerateReview = () => {
@@ -65,11 +98,14 @@ const ReviewPanel = ({ file }: { file: FileType }) => {
 
   return (
     <Card className="h-full flex flex-col border-0 rounded-none">
-      <CardHeader className="flex flex-row items-center justify-between border-b shrink-0 h-14">
-        <CardTitle className="font-headline text-base">AI Code Review</CardTitle>
+      <CardHeader className="flex flex-row items-center justify-between border-b shrink-0 h-12 p-3">
+        <CardTitle className="font-headline text-base flex items-center gap-2">
+            <BotMessageSquare className="h-4 w-4" />
+            AI Code Review
+        </CardTitle>
         <Button onClick={handleGenerateReview} disabled={isPending || !file.content} size="sm">
           {isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Wand2 className="mr-2 h-4 w-4" />}
-          Generate Review
+          Generate
         </Button>
       </CardHeader>
       <CardContent className="flex-1 overflow-auto p-0">
@@ -85,16 +121,30 @@ const ReviewPanel = ({ file }: { file: FileType }) => {
               </div>
             )}
             {!isPending && review && (
-              <div className="text-sm rounded-md bg-muted/50 p-4 animate-in fade-in-50">
-                <pre className="font-sans whitespace-pre-wrap">{review}</pre>
-              </div>
+              <Accordion type="multiple" className="w-full space-y-2">
+                {review.map((suggestion, index) => (
+                    <AccordionItem key={index} value={`item-${index}`} className="bg-muted/50 border rounded-md px-3">
+                       <AccordionTrigger className="text-sm text-left hover:no-underline py-3">
+                           <div className="flex items-center gap-3">
+                                <SeverityIcon severity={suggestion.severity} />
+                                <span className="flex-1 font-medium">{suggestion.title}</span>
+                                <SeverityBadge severity={suggestion.severity} />
+                           </div>
+                       </AccordionTrigger>
+                       <AccordionContent className="p-4 border-t text-muted-foreground text-sm">
+                           <p className="font-semibold text-foreground mb-2">Lines: {suggestion.lines}</p>
+                           <p className="whitespace-pre-wrap">{suggestion.description}</p>
+                       </AccordionContent>
+                   </AccordionItem>
+                ))}
+              </Accordion>
             )}
             {!isPending && !review && (
                <div className="flex flex-col items-center justify-center h-full text-center text-muted-foreground p-8 mt-16">
                   <BotMessageSquare className="h-12 w-12 mb-4" />
                   <h3 className="text-lg font-semibold">Ready for analysis</h3>
                   <p className="max-w-xs text-sm">
-                      Click "Generate Review" to let our AI assistant analyze your code for improvements, potential bugs, and best practices.
+                      Click "Generate" to let our AI assistant analyze your code.
                   </p>
               </div>
             )}
@@ -251,7 +301,7 @@ export function EditorView({ repo, selectedFile, onCommitSuccess }: EditorViewPr
     <ResizablePanelGroup direction="horizontal" className="h-full">
       <ResizablePanel defaultSize={75}>
         <div className="flex flex-col h-full">
-          <div className="flex items-center justify-between px-4 py-2 border-b bg-muted/50 h-14 shrink-0">
+          <div className="flex items-center justify-between px-4 py-2 border-b bg-muted/50 h-12 shrink-0">
              <div className="font-mono text-sm">{selectedFile.name} {isDirty && <span className="text-muted-foreground">*</span>}</div>
              <div className="flex items-center gap-2">
                 <CommitDialog

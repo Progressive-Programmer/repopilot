@@ -89,7 +89,7 @@ const NodeDisplay: FC<{
 export function RepoExplorer({ repo, nodes, onSelectFile, onFolderClick, selectedFile, loading }: RepoExplorerProps) {
   return (
     <div className="h-full flex flex-col bg-background border-r">
-        <div className="p-3 border-b h-14 flex items-center">
+        <div className="p-3 border-b h-12 flex items-center">
             <h2 className="text-base font-semibold tracking-tight font-headline">Explorer</h2>
         </div>
         <ScrollArea className="flex-1">
