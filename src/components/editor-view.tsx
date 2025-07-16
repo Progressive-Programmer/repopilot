@@ -10,9 +10,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Wand2, Loader2, BotMessageSquare, FileCode, Braces, GitCommitHorizontal, AlertCircle, TriangleAlert, Info, Lightbulb } from 'lucide-react';
-import type { File as FileType, Repository } from '@/app/page';
 import { useToast } from '@/hooks/use-toast';
-import type { OnMount, Monaco } from '@monaco-editor/react';
+import type { OnMount } from '@monaco-editor/react';
 import type * as monaco from 'monaco-editor';
 import {
   ResizableHandle,
@@ -26,15 +25,14 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
   DialogClose,
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import type { Suggestion } from '@/ai/flows/generate-code-review';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
+import type { File as FileType, Repository, Suggestion } from '@/lib/types';
 
 const Editor = dynamic(() => import('@monaco-editor/react'), {
   ssr: false,
@@ -45,7 +43,6 @@ const DiffEditor = dynamic(() => import('@monaco-editor/react').then(mod => mod.
   ssr: false,
   loading: () => <Skeleton className="w-full h-full" />,
 });
-
 
 interface EditorViewProps {
   repo: Repository;
@@ -83,36 +80,33 @@ const SeverityBadge = ({ severity }: { severity: Suggestion['severity'] }) => {
 };
 
 
-const ReviewPanel = ({ file, editorRef }: { file: FileType, editorRef: React.RefObject<monaco.editor.IStandaloneCodeEditor | null> }) => {
-  const [isPending, startTransition] = useTransition();
-  const [review, setReview] = useState<Suggestion[] | null>(null);
+const ReviewPanel = ({ 
+    file, 
+    editorRef,
+    review,
+    isReviewPending,
+    onGenerateReview,
+}: { 
+    file: FileType, 
+    editorRef: React.RefObject<monaco.editor.IStandaloneCodeEditor | null>,
+    review: Suggestion[] | null,
+    isReviewPending: boolean,
+    onGenerateReview: () => void,
+}) => {
   const { toast } = useToast();
   const { theme } = useTheme();
-
-  const handleGenerateReview = () => {
-    if (!file.content) {
-        toast({ variant: "destructive", title: "Error", description: "File content is not loaded." });
-        return;
-    }
-    startTransition(async () => {
-        setReview(null);
-        const result = await runCodeReview({ code: file.content, language: file.language });
-        if (result.error) {
-            toast({ variant: "destructive", title: "Error", description: result.error });
-            setReview(null);
-        } else {
-            setReview(result.review || null);
-        }
-    });
-  };
 
   const handleApplySuggestion = (suggestion: Suggestion) => {
     const editor = editorRef.current;
     if (!editor || !suggestion.suggestion) return;
 
-    const [startLine, endLine] = suggestion.lines.split('-').map(Number);
-    const range = new monaco.Range(startLine, 1, endLine, editor.getModel()?.getLineMaxColumn(endLine) || 1);
+    const model = editor.getModel();
+    if (!model) return;
 
+    const [startLine, endLineStr] = suggestion.lines.split('-');
+    const endLine = endLineStr ? parseInt(endLineStr) : parseInt(startLine);
+    const range = new monaco.Range(parseInt(startLine), 1, endLine, model.getLineMaxColumn(endLine));
+    
     editor.executeEdits('ai-suggestion', [{
         range: range,
         text: suggestion.suggestion,
@@ -132,18 +126,18 @@ const ReviewPanel = ({ file, editorRef }: { file: FileType, editorRef: React.Ref
     const model = editor.getModel();
     if (!model) return '';
 
-    const [startLine, endLine] = suggestion.lines.split('-').map(Number);
+    const [startLine, endLineStr] = suggestion.lines.split('-');
+    const endLine = endLineStr ? parseInt(endLineStr) : parseInt(startLine);
+    
     const lines: string[] = [];
-    for (let i = startLine; i <= endLine; i++) {
-      lines.push(model.getLineContent(i));
+    for (let i = parseInt(startLine); i <= endLine; i++) {
+        if (i <= model.getLineCount()) {
+            lines.push(model.getLineContent(i));
+        }
     }
     return lines.join('\n');
   };
-
-  useEffect(() => {
-    setReview(null);
-  }, [file]);
-
+  
   return (
     <Card className="h-full flex flex-col border-0 rounded-none">
       <CardHeader className="flex flex-row items-center justify-between border-b shrink-0 h-12 p-3">
@@ -151,15 +145,15 @@ const ReviewPanel = ({ file, editorRef }: { file: FileType, editorRef: React.Ref
             <BotMessageSquare className="h-4 w-4" />
             AI Code Review
         </CardTitle>
-        <Button onClick={handleGenerateReview} disabled={isPending || !file.content} size="sm">
-          {isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Wand2 className="mr-2 h-4 w-4" />}
+        <Button onClick={onGenerateReview} disabled={isReviewPending || !file.content} size="sm">
+          {isReviewPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Wand2 className="mr-2 h-4 w-4" />}
           Generate
         </Button>
       </CardHeader>
       <CardContent className="flex-1 overflow-auto p-0">
         <ScrollArea className="h-full">
           <div className="p-4">
-            {isPending && (
+            {isReviewPending && (
               <div className="space-y-4 animate-in fade-in-50">
                 <Skeleton className="h-6 w-1/4" />
                 <Skeleton className="h-4 w-full" />
@@ -168,7 +162,7 @@ const ReviewPanel = ({ file, editorRef }: { file: FileType, editorRef: React.Ref
                 <Skeleton className="h-4 w-full" />
               </div>
             )}
-            {!isPending && review && (
+            {!isReviewPending && review && (
               <Accordion type="multiple" className="w-full space-y-2">
                 {review.map((suggestion, index) => (
                     <AccordionItem key={index} value={`item-${index}`} className="bg-card border rounded-md">
@@ -211,7 +205,7 @@ const ReviewPanel = ({ file, editorRef }: { file: FileType, editorRef: React.Ref
                 ))}
               </Accordion>
             )}
-            {!isPending && !review && (
+            {!isReviewPending && !review && (
                <div className="flex flex-col items-center justify-center h-full text-center text-muted-foreground p-8 mt-16">
                   <BotMessageSquare className="h-12 w-12 mb-4" />
                   <h3 className="text-lg font-semibold">Ready for analysis</h3>
@@ -245,6 +239,10 @@ const CommitDialog = ({
   const { toast } = useToast();
   const [isOpen, setIsOpen] = useState(false);
 
+  useEffect(() => {
+    setCommitMessage(`Update ${file.name}`);
+  }, [file.name]);
+
   const handleCommit = async () => {
     if (!commitMessage.trim()) {
       toast({ variant: 'destructive', title: 'Error', description: 'Commit message cannot be empty.' });
@@ -262,11 +260,21 @@ const CommitDialog = ({
 
       if (result.success) {
         // We need to fetch the new SHA for the file to allow subsequent commits
-        const res = await fetch(`/api/github/repos/${repo.full_name}/contents/${file.path}`);
-        const { data: updatedFileData } = await res.json();
-        
-        onCommitSuccess({ ...file, content: editorContent, sha: updatedFileData.sha });
-        setIsOpen(false);
+        try {
+            const res = await fetch(`/api/github/repos/${repo.full_name}/contents/${file.path}`);
+            if (!res.ok) throw new Error("Failed to fetch updated file SHA");
+            const { data: updatedFileData } = await res.json();
+            
+            onCommitSuccess({ ...file, content: editorContent, sha: updatedFileData.sha });
+            setIsOpen(false);
+        } catch(e) {
+             toast({
+                variant: 'destructive',
+                title: 'Commit Successful, but failed to update state',
+                description: 'Please refresh the file to make further commits.',
+            });
+             setIsOpen(false);
+        }
       } else {
         toast({
           variant: 'destructive',
@@ -323,15 +331,36 @@ const CommitDialog = ({
 export function EditorView({ repo, selectedFile, onCommitSuccess }: EditorViewProps) {
   const { theme } = useTheme();
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
+  
   const [editorContent, setEditorContent] = useState<string>('');
   const [isDirty, setIsDirty] = useState(false);
+
+  const [isReviewPending, startReviewTransition] = useTransition();
+  const [review, setReview] = useState<Suggestion[] | null>(null);
+  const { toast } = useToast();
 
   useEffect(() => {
     if (selectedFile) {
       setEditorContent(selectedFile.content);
       setIsDirty(false);
+      setReview(null); // Clear previous review when file changes
     }
   }, [selectedFile]);
+
+  const handleGenerateReview = () => {
+    if (!selectedFile) return;
+
+    startReviewTransition(async () => {
+        setReview(null);
+        const result = await runCodeReview({ code: editorContent, language: selectedFile.language });
+        if (result.error) {
+            toast({ variant: "destructive", title: "Review Error", description: result.error });
+            setReview(null);
+        } else {
+            setReview(result.review || null);
+        }
+    });
+  };
 
   const handleEditorChange = (value: string | undefined) => {
     const content = value || '';
@@ -341,14 +370,12 @@ export function EditorView({ repo, selectedFile, onCommitSuccess }: EditorViewPr
     }
   };
 
-  const handleEditorDidMount: OnMount = (editor, monacoInstance) => {
+  const handleEditorDidMount: OnMount = (editor) => {
     editorRef.current = editor;
   };
 
   const handleFormatCode = () => {
-    if (editorRef.current) {
-      editorRef.current.getAction('editor.action.formatDocument')?.run();
-    }
+    editorRef.current?.getAction('editor.action.formatDocument')?.run();
   };
 
   if (!selectedFile) {
@@ -361,6 +388,7 @@ export function EditorView({ repo, selectedFile, onCommitSuccess }: EditorViewPr
     );
   }
 
+  // Show a loader specific to the editor content
   if (selectedFile.content === '' && editorContent === '') {
      return (
       <div className="flex h-full items-center justify-center bg-background">
@@ -411,8 +439,16 @@ export function EditorView({ repo, selectedFile, onCommitSuccess }: EditorViewPr
       </ResizablePanel>
       <ResizableHandle withHandle />
       <ResizablePanel defaultSize={25} minSize={20}>
-        <ReviewPanel file={{...selectedFile, content: editorContent}} editorRef={editorRef} />
+        <ReviewPanel 
+            file={{...selectedFile, content: editorContent}} 
+            editorRef={editorRef}
+            review={review}
+            isReviewPending={isReviewPending}
+            onGenerateReview={handleGenerateReview}
+        />
       </ResizablePanel>
     </ResizablePanelGroup>
   );
 }
+
+    
