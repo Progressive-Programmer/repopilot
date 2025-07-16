@@ -1,8 +1,6 @@
-
 "use client";
 
-import { useSession, signIn, signOut } from "next-auth/react";
-import { useTheme } from "next-themes";
+import { useSession, signOut } from "next-auth/react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import {
@@ -13,25 +11,9 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Github, LifeBuoy, LogOut, Settings, User, LogIn, Moon, Sun } from "lucide-react";
-
-export function ThemeToggle() {
-  const { setTheme, theme } = useTheme();
-
-  return (
-    <Button
-      variant="ghost"
-      size="icon"
-      onClick={() => setTheme(theme === "light" ? "dark" : "light")}
-      aria-label="Toggle theme"
-    >
-      <Sun className="h-5 w-5 rotate-0 scale-100 transition-all dark:-rotate-90 dark:scale-0" />
-      <Moon className="absolute h-5 w-5 rotate-90 scale-0 transition-all dark:rotate-0 dark:scale-100" />
-      <span className="sr-only">Toggle theme</span>
-    </Button>
-  );
-}
-
+import { Github, LifeBuoy, LogOut, Settings, User, LogIn } from "lucide-react";
+import { ThemeToggle } from "./theme-toggle";
+import Link from 'next/link';
 
 export function GithubUI() {
   const { data: session, status } = useSession();
@@ -45,12 +27,15 @@ export function GithubUI() {
     );
   }
 
-  if (status === "authenticated" && session.user) {
+  if (status === "authenticated" && session?.user) {
+    const githubUsername = (session as any).user?.name;
+    const githubProfileUrl = `https://github.com/${githubUsername}`;
+
     return (
       <div className="flex items-center gap-4">
         <ThemeToggle />
         <Button variant="ghost" size="icon" asChild>
-          <a href="https://github.com" target="_blank" aria-label="GitHub">
+          <a href="https://github.com/invertase/repopilot" target="_blank" aria-label="GitHub Repository">
             <Github className="h-5 w-5" />
           </a>
         </Button>
@@ -73,18 +58,24 @@ export function GithubUI() {
               </div>
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
-            <DropdownMenuItem>
-              <User className="mr-2 h-4 w-4" />
-              <span>Profile</span>
+            <DropdownMenuItem asChild>
+              <a href={githubProfileUrl} target="_blank" rel="noopener noreferrer">
+                <User className="mr-2 h-4 w-4" />
+                <span>Profile</span>
+              </a>
             </DropdownMenuItem>
             
-            <DropdownMenuItem>
-              <Settings className="mr-2 h-4 w-4" />
-              <span>Settings</span>
+            <DropdownMenuItem asChild>
+              <Link href="/settings">
+                <Settings className="mr-2 h-4 w-4" />
+                <span>Settings</span>
+              </Link>
             </DropdownMenuItem>
-            <DropdownMenuItem>
-              <LifeBuoy className="mr-2 h-4 w-4" />
-              <span>Support</span>
+            <DropdownMenuItem asChild>
+              <a href="https://github.com/invertase/repopilot/issues" target="_blank" rel="noopener noreferrer">
+                <LifeBuoy className="mr-2 h-4 w-4" />
+                <span>Support</span>
+              </a>
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={() => signOut()}>
