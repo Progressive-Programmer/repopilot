@@ -41,15 +41,22 @@ const UnauthenticatedView = () => (
     </div>
 );
 
-const RepoDashboard = ({ session, onSelectRepo }: { session: Session | null, onSelectRepo: (repo: Repository) => void }) => {
+const RepoDashboard = ({ session }: { session: Session | null }) => {
+    const router = useRouter();
     const [repos, setRepos] = useState<Repository[]>([]);
     const [loading, setLoading] = useState(true);
     const [loadingMore, setLoadingMore] = useState(false);
+    const [loadingRepo, setLoadingRepo] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [searchQuery, setSearchQuery] = useState('');
     const [page, setPage] = useState(1);
     const [hasMore, setHasMore] = useState(true);
     const sentinelRef = useRef<HTMLDivElement | null>(null);
+
+    const handleSelectRepo = useCallback((repo: Repository) => {
+        setLoadingRepo(repo.full_name);
+        router.push(`/view/${repo.full_name}`);
+    }, [router]);
 
 
     const fetchRepos = useCallback(async (pageNum: number, search: string) => {
@@ -186,36 +193,43 @@ const RepoDashboard = ({ session, onSelectRepo }: { session: Session | null, onS
                     />
                 </div>
                 <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                    {repos.map(repo => (
-                        <Card key={repo.id} className="flex flex-col">
-                            <CardHeader>
-                                <CardTitle className="flex items-center gap-2 text-xl">
-                                    <GitBranch className="h-5 w-5" />
-                                    {repo.name}
-                                </CardTitle>
-                                <CardDescription className="flex-grow h-12 overflow-hidden text-ellipsis">
-                                    {repo.description || "No description."}
-                                </CardDescription>
-                            </CardHeader>
-                             <CardContent className="text-xs text-muted-foreground flex items-center gap-4">
-                                <div className="flex items-center gap-1">
-                                    <Star className="h-3 w-3" /> {repo.stargazers_count}
-                                </div>
-                                <div className="flex items-center gap-1">
-                                    <GitFork className="h-3 w-3" /> {repo.forks_count}
-                                </div>
-                                <div className="flex items-center gap-1">
-                                    <Eye className="h-3 w-3" /> {repo.watchers_count}
-                                </div>
-                            </CardContent>
-                            <CardFooter>
-                                <Button variant="secondary" size="sm" className="w-full" onClick={() => onSelectRepo(repo)}>
-                                    <Code className="mr-2 h-4 w-4" />
-                                    Explore Code
-                                </Button>
-                            </CardFooter>
-                        </Card>
-                    ))}
+                    {repos.map(repo => {
+                        const isRepoLoading = loadingRepo === repo.full_name;
+                        return (
+                            <Card key={repo.id} className="flex flex-col">
+                                <CardHeader>
+                                    <CardTitle className="flex items-center gap-2 text-xl">
+                                        <GitBranch className="h-5 w-5" />
+                                        {repo.name}
+                                    </CardTitle>
+                                    <CardDescription className="flex-grow h-12 overflow-hidden text-ellipsis">
+                                        {repo.description || "No description."}
+                                    </CardDescription>
+                                </CardHeader>
+                                <CardContent className="text-xs text-muted-foreground flex items-center gap-4">
+                                    <div className="flex items-center gap-1">
+                                        <Star className="h-3 w-3" /> {repo.stargazers_count}
+                                    </div>
+                                    <div className="flex items-center gap-1">
+                                        <GitFork className="h-3 w-3" /> {repo.forks_count}
+                                    </div>
+                                    <div className="flex items-center gap-1">
+                                        <Eye className="h-3 w-3" /> {repo.watchers_count}
+                                    </div>
+                                </CardContent>
+                                <CardFooter>
+                                    <Button variant="secondary" size="sm" className="w-full" onClick={() => handleSelectRepo(repo)} disabled={isRepoLoading}>
+                                        {isRepoLoading ? (
+                                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                        ) : (
+                                            <Code className="mr-2 h-4 w-4" />
+                                        )}
+                                        Explore Code
+                                    </Button>
+                                </CardFooter>
+                            </Card>
+                        )
+                    })}
                 </div>
                 
                 <div ref={sentinelRef} className="h-10 w-full flex items-center justify-center">
@@ -243,12 +257,7 @@ const RepoDashboard = ({ session, onSelectRepo }: { session: Session | null, onS
 
 export default function Home() {
     const { data: session, status } = useSession();
-    const router = useRouter();
-
-    const handleSelectRepo = useCallback((repo: Repository) => {
-        router.push(`/view/${repo.full_name}`);
-    }, [router]);
-
+    
     if (status === "loading") {
         return (
              <div className="flex items-center justify-center h-svh bg-background">
@@ -261,5 +270,5 @@ export default function Home() {
         return <UnauthenticatedView />;
     }
 
-    return <RepoDashboard session={session} onSelectRepo={handleSelectRepo} />;
+    return <RepoDashboard session={session} />;
 }
