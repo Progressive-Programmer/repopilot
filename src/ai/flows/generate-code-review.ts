@@ -41,7 +41,7 @@ export async function generateCodeReview(input: GenerateCodeReviewInput): Promis
 const prompt = ai.definePrompt({
   name: 'generateCodeReviewPrompt',
   input: {schema: GenerateCodeReviewInputSchema},
-  output: {schema: GenerateCodeReviewOutputSchema},
+  output: {schema: GenerateCodeReviewOutputSchema, format: 'json'},
   prompt: `You are an expert code reviewer acting as an automated linter. Your task is to provide a thorough code review with actionable advice and suggestions for improvements.
 
 Analyze the following code, paying close attention to:
@@ -57,7 +57,7 @@ For each issue you find, provide a clear suggestion. Each suggestion must includ
 4.  The exact line range (e.g., "10-15") the issue pertains to.
 5.  If applicable, provide a concrete 'suggestion' with the exact code that should replace the problematic lines. The suggested code should be perfectly formatted and include the original indentation to ensure it can be applied directly.
 
-Return your findings as a structured list of suggestions.
+Return your findings as a structured list of suggestions in JSON format.
 
 Language: {{{language}}}
 

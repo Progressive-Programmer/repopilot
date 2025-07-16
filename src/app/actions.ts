@@ -1,8 +1,8 @@
 'use server';
 
-import { generateCodeReview, type GenerateCodeReviewInput } from '@/ai/flows/generate-code-review';
+import { generateCodeReview, type GenerateCodeReviewInput, type Suggestion } from '@/ai/flows/generate-code-review';
 
-export async function runCodeReview(input: GenerateCodeReviewInput): Promise<{ review?: string; error?: string }> {
+export async function runCodeReview(input: GenerateCodeReviewInput): Promise<{ review?: Suggestion[]; error?: string }> {
   if (!input.code || !input.language) {
     return { error: 'Code and language are required to generate a review.' };
   }
@@ -10,9 +10,10 @@ export async function runCodeReview(input: GenerateCodeReviewInput): Promise<{ r
   try {
     const result = await generateCodeReview(input);
     return { review: result.review };
-  } catch (e) {
+  } catch (e: any) {
     console.error(e);
-    return { error: 'An unexpected error occurred while generating the code review. Please try again later.' };
+    const errorMessage = e.message || 'An unexpected error occurred while generating the code review. Please try again later.';
+    return { error: errorMessage };
   }
 }
 
