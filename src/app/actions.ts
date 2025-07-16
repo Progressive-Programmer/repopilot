@@ -3,41 +3,54 @@
 import { generateCodeReview, generateDiffReview, type GenerateCodeReviewInput, type Suggestion } from '@/ai/flows/generate-code-review';
 import { diff_match_patch, DIFF_EQUAL, DIFF_INSERT, DIFF_DELETE, type Diff } from 'diff-match-patch';
 import { GEMINI_PRO, GEMINI_15_FLASH } from '@/ai/genkit';
+import type { GenerationModel } from 'genkit';
 
 const CONTEXT_LINES = 3;
+const MODELS_TO_TRY: GenerationModel[] = [GEMINI_15_FLASH, GEMINI_PRO];
 
 function isOverloadedError(e: any): boolean {
-  return e.message?.includes('503') || e.message?.includes('overloaded');
+  return e.message?.includes('503') || e.message?.includes('overloaded') || e.message?.includes('429');
 }
+
+async function runReviewWithFallbacks<T>(
+  reviewFunction: (input: T) => Promise<{ review?: Suggestion[]; error?: string }>,
+  input: T
+): Promise<{ review?: Suggestion[]; error?: string }> {
+  let lastError: any;
+  for (const model of MODELS_TO_TRY) {
+    try {
+      const inputWithModel = { ...input, model };
+      const result = await reviewFunction(inputWithModel);
+      if (result.review) {
+        return result; // Success
+      }
+      if (result.error && !isOverloadedError({ message: result.error })) {
+        return result; // Return non-overload errors immediately
+      }
+      lastError = result.error;
+    } catch (e: any) {
+      lastError = e;
+      if (!isOverloadedError(e)) {
+        console.error(`Non-overload error with model ${model.name}, failing fast:`, e);
+        break; // Don't retry on other errors
+      }
+      console.log(`Model ${model.name} is overloaded, trying next model...`);
+    }
+  }
+
+  console.error('All models failed:', lastError);
+  const errorMessage = lastError?.message || 'An unexpected error occurred after trying all available models. Please try again later.';
+  return { error: errorMessage };
+}
+
 
 export async function runCodeReview(input: GenerateCodeReviewInput): Promise<{ review?: Suggestion[]; error?: string }> {
   if (!input.code || !input.language) {
     return { error: 'Code and language are required to generate a review.' };
   }
-
-  try {
-    const result = await generateCodeReview({ ...input, model: GEMINI_15_FLASH });
-    return { review: result.review };
-  } catch (e: any) {
-    console.warn(`Primary model failed, checking for overload: ${e.message}`);
-    // If the primary model is overloaded, try the fallback.
-    if (isOverloadedError(e)) {
-      console.log('Primary model overloaded, trying fallback (gemini-pro)...');
-      try {
-        const result = await generateCodeReview({ ...input, model: GEMINI_PRO });
-        return { review: result.review };
-      } catch (fallbackError: any) {
-        console.error('Fallback model also failed:', fallbackError);
-        const errorMessage = fallbackError.message || 'An unexpected error occurred while generating the code review. Please try again later.';
-        return { error: errorMessage };
-      }
-    }
-
-    console.error(e);
-    const errorMessage = e.message || 'An unexpected error occurred while generating the code review. Please try again later.';
-    return { error: errorMessage };
-  }
+  return runReviewWithFallbacks(generateCodeReview, input);
 }
+
 
 function createUnifiedDiff(originalCode: string, modifiedCode: string, diffs: Diff[]): string {
     const originalLines = originalCode.split('\n');
@@ -143,27 +156,7 @@ export async function runDiffReview(originalCode: string, modifiedCode: string, 
     return { review: [] };
   }
   
-  try {
-    const result = await generateDiffReview({ diff: diffText, language, model: GEMINI_15_FLASH });
-    return { review: result.review };
-  } catch (e: any) {
-    console.warn(`Primary model failed for diff review, checking for overload: ${e.message}`);
-    if(isOverloadedError(e)) {
-      console.log('Primary model overloaded, trying fallback (gemini-pro) for diff review...');
-      try {
-        const result = await generateDiffReview({ diff: diffText, language, model: GEMINI_PRO });
-        return { review: result.review };
-      } catch (fallbackError: any) {
-        console.error('Fallback model also failed for diff review:', fallbackError);
-        const errorMessage = fallbackError.message || 'An unexpected error occurred while generating the code review. Please try again later.';
-        return { error: errorMessage };
-      }
-    }
-    
-    console.error(e);
-    const errorMessage = e.message || 'An unexpected error occurred while generating the code review. Please try again later.';
-    return { error: errorMessage };
-  }
+  return runReviewWithFallbacks(generateDiffReview, { diff: diffText, language });
 }
 
 
