@@ -4,7 +4,7 @@
 import { useState, useTransition, useEffect, useRef } from 'react';
 import { useTheme } from 'next-themes';
 import dynamic from 'next/dynamic';
-import { runCodeReview, commitFile } from '@/app/actions';
+import { runCodeReview, commitFile, runDiffReview } from '@/app/actions';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -300,7 +300,7 @@ const CommitDialog = ({
           <DialogDescription>
             Enter a commit message to describe your changes.
           </DialogDescription>
-        </DialogHeader>
+        </Header>
         <div className="grid gap-4 py-4">
           <div className="grid grid-cols-4 items-center gap-4">
             <Label htmlFor="commit-message" className="text-right">
@@ -333,6 +333,7 @@ export function EditorView({ repo, selectedFile, onCommitSuccess }: EditorViewPr
   const { theme } = useTheme();
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
   
+  const [originalContent, setOriginalContent] = useState<string>('');
   const [editorContent, setEditorContent] = useState<string>('');
   const [isDirty, setIsDirty] = useState(false);
 
@@ -342,6 +343,7 @@ export function EditorView({ repo, selectedFile, onCommitSuccess }: EditorViewPr
 
   useEffect(() => {
     if (selectedFile) {
+      setOriginalContent(selectedFile.content);
       setEditorContent(selectedFile.content);
       setIsDirty(false);
       setReview(null); // Clear previous review when file changes
@@ -353,12 +355,19 @@ export function EditorView({ repo, selectedFile, onCommitSuccess }: EditorViewPr
 
     startReviewTransition(async () => {
         setReview(null);
-        const result = await runCodeReview({ code: editorContent, language: selectedFile.language });
+        // If the file is not dirty, run a full review. Otherwise, run a diff review.
+        const result = isDirty 
+            ? await runDiffReview(originalContent, editorContent, selectedFile.language)
+            : await runCodeReview({ code: editorContent, language: selectedFile.language });
+
         if (result.error) {
             toast({ variant: "destructive", title: "Review Error", description: result.error });
             setReview(null);
         } else {
             setReview(result.review || null);
+             if (result.review?.length === 0) {
+                 toast({ title: "No issues found", description: "The AI didn't find any issues in the changes." });
+             }
         }
     });
   };
@@ -366,9 +375,7 @@ export function EditorView({ repo, selectedFile, onCommitSuccess }: EditorViewPr
   const handleEditorChange = (value: string | undefined) => {
     const content = value || '';
     setEditorContent(content);
-    if (selectedFile) {
-        setIsDirty(content !== selectedFile.content);
-    }
+    setIsDirty(content !== originalContent);
   };
 
   const handleEditorDidMount: OnMount = (editor) => {

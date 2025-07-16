@@ -1,6 +1,7 @@
 'use server';
 
-import { generateCodeReview, type GenerateCodeReviewInput, type Suggestion } from '@/ai/flows/generate-code-review';
+import { generateCodeReview, generateDiffReview, type GenerateCodeReviewInput, type GenerateDiffReviewInput, type Suggestion } from '@/ai/flows/generate-code-review';
+import { diff_match_patch, DIFF_EQUAL, DIFF_INSERT, DIFF_DELETE } from 'diff-match-patch';
 
 export async function runCodeReview(input: GenerateCodeReviewInput): Promise<{ review?: Suggestion[]; error?: string }> {
   if (!input.code || !input.language) {
@@ -16,6 +17,52 @@ export async function runCodeReview(input: GenerateCodeReviewInput): Promise<{ r
     return { error: errorMessage };
   }
 }
+
+export async function runDiffReview(originalCode: string, modifiedCode: string, language: string): Promise<{ review?: Suggestion[]; error?: string }> {
+  if (!language) {
+    return { error: 'Language is required to generate a review.' };
+  }
+
+  try {
+    const dmp = new diff_match_patch();
+    const diffs = dmp.diff_main(originalCode, modifiedCode);
+    dmp.diff_cleanupSemantic(diffs);
+
+    let diffText = '';
+    let originalLine = 1;
+    let modifiedLine = 1;
+
+    for (const [op, text] of diffs) {
+      const lines = text.split('\n');
+      const lineCount = lines.length - 1;
+
+      if (op === DIFF_EQUAL) {
+        // No prefix for equal lines
+        originalLine += lineCount;
+        modifiedLine += lineCount;
+      } else if (op === DIFF_DELETE) {
+        diffText += text.split('\n').map(l => l ? `- ${l}` : '-').join('\n');
+        originalLine += lineCount;
+      } else if (op === DIFF_INSERT) {
+        diffText += text.split('\n').map(l => l ? `+ ${l}` : '+').join('\n');
+        modifiedLine += lineCount;
+      }
+    }
+    
+    // If there's no actual difference, don't run the review.
+    if (!diffText.trim().length) {
+      return { review: [] };
+    }
+    
+    const result = await generateDiffReview({ diff: diffText, language });
+    return { review: result.review };
+  } catch (e: any) {
+    console.error(e);
+    const errorMessage = e.message || 'An unexpected error occurred while generating the code review. Please try again later.';
+    return { error: errorMessage };
+  }
+}
+
 
 export async function commitFile({
   repoFullName,
