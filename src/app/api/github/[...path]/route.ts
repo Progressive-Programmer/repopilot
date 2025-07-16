@@ -37,6 +37,13 @@ async function githubApiProxy(request: Request, path: string) {
     try {
         const response = await fetch(githubApiUrl, options);
 
+        // If the token is invalid or expired, GitHub returns a 401.
+        // We'll catch this and send a specific response to the client
+        // so it can trigger a re-authentication flow.
+        if (response.status === 401) {
+            return NextResponse.json({ message: "Invalid token", needsReauth: true }, { status: 401 });
+        }
+        
         if (!response.ok) {
             const errorData = await response.json().catch(() => ({ message: response.statusText }));
             return NextResponse.json({ message: errorData.message || 'An error occurred with the GitHub API' }, { status: response.status });

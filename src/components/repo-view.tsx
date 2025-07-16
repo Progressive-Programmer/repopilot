@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useState, useEffect, useCallback, useTransition, Suspense } from 'react';
+import { useState, useEffect, useCallback, useTransition } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import type { Repository, FileSystemNode, File as FileType } from '@/lib/types';
 import { RepoExplorer } from '@/components/repo-explorer';
@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/resizable";
 import { getLanguageFromExtension } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
+import { useApi } from '@/hooks/use-api';
 
 // Helper to sort files and folders
 const sortNodes = (nodes: FileSystemNode[]) => {
@@ -25,14 +26,13 @@ const sortNodes = (nodes: FileSystemNode[]) => {
     });
 };
 
-async function fetchRepoDetails(repoFullName: string): Promise<Repository | null> {
+async function fetchRepoDetails(repoFullName: string, get: (url: string) => Promise<any>): Promise<Repository | null> {
     try {
-        const res = await fetch(`/api/github/repos/${repoFullName}`);
-        if (!res.ok) {
-            console.error(`Failed to fetch repository details for ${repoFullName}. Status: ${res.status}`);
+        const { data, error } = await get(`/api/github/repos/${repoFullName}`);
+        if (error) {
+            console.error(`Failed to fetch repository details for ${repoFullName}. Error: ${error.message}`);
             return null;
         }
-        const { data } = await res.json();
         return data;
     } catch (error) {
         console.error("Failed to fetch full repo details", error);
@@ -47,6 +47,7 @@ export function RepoView({ repoFullName }: { repoFullName: string }) {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const { toast } = useToast();
+    const { get } = useApi();
     
     const router = useRouter();
     const pathname = usePathname();
@@ -77,12 +78,10 @@ export function RepoView({ repoFullName }: { repoFullName: string }) {
         updateUrlForFile(file.path);
 
         try {
-            const res = await fetch(`/api/github/repos/${repoFullName}/contents/${file.path}`);
-            if (!res.ok) {
-                const errorData = await res.json().catch(() => null);
-                throw new Error(errorData?.message || 'Failed to fetch file content.');
+            const { data, error } = await get(`/api/github/repos/${repoFullName}/contents/${file.path}`);
+            if (error) {
+                throw new Error(error.message || 'Failed to fetch file content.');
             }
-            const { data } = await res.json();
             if (data.encoding === 'base64' && data.content) {
                 const content = atob(data.content);
                 setSelectedFile({ ...file, sha: data.sha, content, language: file.language || 'plaintext' });
@@ -95,7 +94,7 @@ export function RepoView({ repoFullName }: { repoFullName: string }) {
             setSelectedFile(null);
             updateUrlForFile(null); // Clear from URL if fetch fails
         }
-    }, [repoFullName, selectedFile?.path, selectedFile?.content, toast, updateUrlForFile]);
+    }, [repoFullName, selectedFile?.path, selectedFile?.content, toast, updateUrlForFile, get]);
 
 
     useEffect(() => {
@@ -108,8 +107,8 @@ export function RepoView({ repoFullName }: { repoFullName: string }) {
             setSelectedFile(null);
             try {
                 const [repoData, contentsRes] = await Promise.all([
-                    fetchRepoDetails(repoFullName),
-                    fetch(`/api/github/repos/${repoFullName}/contents`)
+                    fetchRepoDetails(repoFullName, get),
+                    get(`/api/github/repos/${repoFullName}/contents`)
                 ]);
 
                 if (!repoData) {
@@ -117,12 +116,12 @@ export function RepoView({ repoFullName }: { repoFullName: string }) {
                 }
                 setRepoDetails(repoData);
 
-                if (!contentsRes.ok) {
-                    const errorData = await contentsRes.json().catch(() => ({ message: 'Failed to fetch repository contents.' }));
-                    throw new Error(errorData.message);
+                if (contentsRes.error) {
+                    throw new Error(contentsRes.error.message);
                 }
+                
+                const { data } = contentsRes;
 
-                const { data } = await contentsRes.json();
                 if (!Array.isArray(data)) {
                     throw new Error("Invalid data format received from API.");
                 }
@@ -161,9 +160,8 @@ export function RepoView({ repoFullName }: { repoFullName: string }) {
 
     const handleFolderClick = useCallback(async (folderPath: string) => {
         try {
-            const res = await fetch(`/api/github/repos/${repoFullName}/contents/${folderPath}`);
-            if (!res.ok) throw new Error('Failed to fetch folder content');
-            const { data } = await res.json();
+            const { data, error } = await get(`/api/github/repos/${repoFullName}/contents/${folderPath}`);
+            if (error) throw new Error('Failed to fetch folder content');
              if (!Array.isArray(data)) {
                 console.error("Folder content is not an array:", data);
                 return;
@@ -202,7 +200,7 @@ export function RepoView({ repoFullName }: { repoFullName: string }) {
                 description: 'Please check the console for more details.'
             })
         }
-    }, [repoFullName, toast]);
+    }, [repoFullName, toast, get]);
 
     const onCommitSuccess = (newFileState: FileType) => {
         setSelectedFile(newFileState);

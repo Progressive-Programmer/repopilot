@@ -4,7 +4,7 @@
 import { useState, useTransition, useEffect, useRef } from 'react';
 import { useTheme } from 'next-themes';
 import dynamic from 'next/dynamic';
-import { runCodeReview, commitFile, runDiffReview } from '@/app/actions';
+import { commitFile, runDiffReview, runCodeReview } from '@/app/actions';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -34,6 +34,7 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import type { File as FileType, Repository, Suggestion } from '@/lib/types';
+import { useApi } from '@/hooks/use-api';
 
 const Editor = dynamic(() => import('@monaco-editor/react'), {
   ssr: false,
@@ -44,12 +45,6 @@ const DiffEditor = dynamic(() => import('@monaco-editor/react').then(mod => mod.
   ssr: false,
   loading: () => <Skeleton className="w-full h-full" />,
 });
-
-interface EditorViewProps {
-  repo: Repository;
-  selectedFile: FileType | null;
-  onCommitSuccess: (newFileState: FileType) => void;
-}
 
 const SeverityIcon = ({ severity }: { severity: Suggestion['severity'] }) => {
     switch (severity) {
@@ -238,6 +233,7 @@ const CommitDialog = ({
   const [commitMessage, setCommitMessage] = useState(`Update ${file.name}`);
   const [isCommitting, startCommitTransition] = useTransition();
   const { toast } = useToast();
+  const { get } = useApi();
   const [isOpen, setIsOpen] = useState(false);
 
   useEffect(() => {
@@ -262,9 +258,8 @@ const CommitDialog = ({
       if (result.success) {
         // We need to fetch the new SHA for the file to allow subsequent commits
         try {
-            const res = await fetch(`/api/github/repos/${repo.full_name}/contents/${file.path}`);
-            if (!res.ok) throw new Error("Failed to fetch updated file SHA");
-            const { data: updatedFileData } = await res.json();
+            const { data: updatedFileData, error } = await get(`/api/github/repos/${repo.full_name}/contents/${file.path}`);
+            if (error) throw new Error("Failed to fetch updated file SHA");
             
             onCommitSuccess({ ...file, content: editorContent, sha: updatedFileData.sha });
             setIsOpen(false);

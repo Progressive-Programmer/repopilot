@@ -2,7 +2,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { useSession, signIn, type Session } from "next-auth/react";
+import { useSession, signIn } from "next-auth/react";
 import { useRouter } from 'next/navigation';
 import { Github, GitBranch, Loader2, AlertTriangle, Code, Search, Star, GitFork, Eye } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -12,6 +12,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import type { Repository } from '@/lib/types';
+import { useApi } from '@/hooks/use-api';
 
 
 const Logo = () => (
@@ -75,32 +76,27 @@ const RepoDashboardSkeleton = () => (
 );
 
 
-const RepoDashboard = ({ session }: { session: Session | null }) => {
+const RepoDashboard = () => {
     const router = useRouter();
+    const { get } = useApi();
     const [allRepos, setAllRepos] = useState<Repository[]>([]);
     const [filteredRepos, setFilteredRepos] = useState<Repository[]>([]);
     const [loading, setLoading] = useState(true);
-    const [loadingMore, setLoadingMore] = useState(false);
     const [loadingRepo, setLoadingRepo] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [searchQuery, setSearchQuery] = useState('');
-    const [page, setPage] = useState(1);
-    const [hasMore, setHasMore] = useState(true);
-    const sentinelRef = useRef<HTMLDivElement | null>(null);
     const isInitialLoad = useRef(true);
 
     const handleSelectRepo = useCallback((repo: Repository) => {
         setLoadingRepo(repo.full_name);
         router.push(`/view/${repo.full_name}`);
     }, [router]);
-
+    
     const fetchAllRepos = useCallback(async (pageNum = 1): Promise<Repository[]> => {
-        const res = await fetch(`/api/github/user/repos?sort=pushed&per_page=100&page=${pageNum}`);
-        if (!res.ok) {
-            const errorData = await res.json().catch(() => null);
-            throw new Error(errorData?.message || `Failed to fetch repositories. Status: ${res.status}`);
+        const { data, linkHeader, error } = await get(`/api/github/user/repos?sort=pushed&per_page=100&page=${pageNum}`);
+        if (error) {
+             throw new Error(error.message || `Failed to fetch repositories.`);
         }
-        const { data, linkHeader } = await res.json();
         if (!Array.isArray(data)) {
             throw new Error("Invalid data format received from API.");
         }
@@ -109,7 +105,7 @@ const RepoDashboard = ({ session }: { session: Session | null }) => {
             return data.concat(await fetchAllRepos(pageNum + 1));
         }
         return data;
-    }, []);
+    }, [get]);
 
     const filterRepos = useCallback(() => {
         if (!searchQuery) {
@@ -126,7 +122,6 @@ const RepoDashboard = ({ session }: { session: Session | null }) => {
 
     useEffect(() => {
         const loadInitialData = async () => {
-            if (!session) return;
             setLoading(true);
             setError(null);
             try {
@@ -144,10 +139,9 @@ const RepoDashboard = ({ session }: { session: Session | null }) => {
             }
         };
         loadInitialData();
-    }, [session, fetchAllRepos]);
+    }, [fetchAllRepos]);
     
      useEffect(() => {
-        // Debounce search filtering
         const handler = setTimeout(() => {
             filterRepos();
         }, 200);
@@ -249,7 +243,7 @@ const RepoDashboard = ({ session }: { session: Session | null }) => {
 
 
 export default function Home() {
-    const { data: session, status } = useSession();
+    const { status } = useSession();
     
     if (status === "loading") {
         return (
@@ -259,9 +253,9 @@ export default function Home() {
         );
     }
     
-    if (status === "unauthenticated" || !session) {
+    if (status === "unauthenticated") {
         return <UnauthenticatedView />;
     }
 
-    return <RepoDashboard session={session} />;
+    return <RepoDashboard />;
 }

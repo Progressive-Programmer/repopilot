@@ -3,19 +3,19 @@
 
 import { useState, useEffect } from 'react';
 import { Button } from "@/components/ui/button";
-import { GitFork, Star, Share2, Loader2, AlertTriangle } from "lucide-react";
+import { GitFork, Star, Share2, AlertTriangle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import type { Repository } from '@/lib/types';
 import { Skeleton } from './ui/skeleton';
+import { useApi } from '@/hooks/use-api';
 
-async function fetchRepoDetails(repoFullName: string): Promise<Repository | null> {
+async function fetchRepoDetails(repoFullName: string, get: (url: string) => Promise<any>): Promise<Repository | null> {
     try {
-        const res = await fetch(`/api/github/repos/${repoFullName}`);
-        if (!res.ok) {
-            console.error(`Failed to fetch repository details for ${repoFullName}. Status: ${res.status}`);
+        const { data, error } = await get(`/api/github/repos/${repoFullName}`);
+        if (error) {
+            console.error(`Failed to fetch repository details for ${repoFullName}. Error: ${error.message}`);
             return null;
         }
-        const { data } = await res.json();
         return data;
     } catch (error) {
         console.error("Failed to fetch full repo details", error);
@@ -26,6 +26,7 @@ async function fetchRepoDetails(repoFullName: string): Promise<Repository | null
 
 export const RepoHeader = ({ repoFullName }: { repoFullName: string }) => {
     const { toast } = useToast();
+    const { get } = useApi();
     const [repo, setRepo] = useState<Repository | null>(null);
     const [loading, setLoading] = useState(true);
 
@@ -36,12 +37,12 @@ export const RepoHeader = ({ repoFullName }: { repoFullName: string }) => {
                 return;
             }
             setLoading(true);
-            const details = await fetchRepoDetails(repoFullName);
+            const details = await fetchRepoDetails(repoFullName, get);
             setRepo(details);
             setLoading(false);
         }
         loadRepo();
-    }, [repoFullName]);
+    }, [repoFullName, get]);
 
 
     const handleShare = () => {
