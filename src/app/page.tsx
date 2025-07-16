@@ -10,6 +10,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { GithubUI } from '@/components/github-ui';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Input } from '@/components/ui/input';
+import { Skeleton } from '@/components/ui/skeleton';
 import type { Repository } from '@/lib/types';
 
 
@@ -41,9 +42,43 @@ const UnauthenticatedView = () => (
     </div>
 );
 
+const RepoDashboardSkeleton = () => (
+    <div className="flex flex-col h-svh bg-background">
+        <header className="flex items-center justify-between p-4 border-b h-16 shrink-0">
+            <Logo />
+            <GithubUI />
+        </header>
+        <main className="flex-1 overflow-auto p-4 md:p-8">
+            <div className="max-w-4xl mx-auto">
+                <Skeleton className="h-10 w-1/3 mb-4" />
+                <Skeleton className="h-12 w-full mb-6" />
+                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                    {[...Array(6)].map((_, i) => (
+                        <Card key={i}>
+                            <CardHeader>
+                                <Skeleton className="h-6 w-3/4 mb-2" />
+                                <Skeleton className="h-4 w-full" />
+                                <Skeleton className="h-4 w-5/6" />
+                            </CardHeader>
+                            <CardContent>
+                                <Skeleton className="h-4 w-1/2" />
+                            </CardContent>
+                            <CardFooter>
+                                <Skeleton className="h-9 w-full" />
+                            </CardFooter>
+                        </Card>
+                    ))}
+                </div>
+            </div>
+        </main>
+    </div>
+);
+
+
 const RepoDashboard = ({ session }: { session: Session | null }) => {
     const router = useRouter();
-    const [repos, setRepos] = useState<Repository[]>([]);
+    const [allRepos, setAllRepos] = useState<Repository[]>([]);
+    const [filteredRepos, setFilteredRepos] = useState<Repository[]>([]);
     const [loading, setLoading] = useState(true);
     const [loadingMore, setLoadingMore] = useState(false);
     const [loadingRepo, setLoadingRepo] = useState<string | null>(null);
@@ -52,118 +87,79 @@ const RepoDashboard = ({ session }: { session: Session | null }) => {
     const [page, setPage] = useState(1);
     const [hasMore, setHasMore] = useState(true);
     const sentinelRef = useRef<HTMLDivElement | null>(null);
+    const isInitialLoad = useRef(true);
 
     const handleSelectRepo = useCallback((repo: Repository) => {
         setLoadingRepo(repo.full_name);
         router.push(`/view/${repo.full_name}`);
     }, [router]);
 
-
-    const fetchRepos = useCallback(async (pageNum: number, search: string) => {
-        if (pageNum === 1) setLoading(true);
-        else setLoadingMore(true);
-        
-        setError(null);
-
-        try {
-            let url = '';
-            if (search) {
-                const userLogin = session?.user?.email?.split('@')[0]; // A bit of a guess, but often works for GH username
-                const q = `${search} in:name user:${userLogin}`;
-                url = `/api/github/search/repositories?q=${encodeURIComponent(q)}&sort=pushed&per_page=30&page=${pageNum}`;
-            } else {
-                url = `/api/github/user/repos?sort=pushed&per_page=30&page=${pageNum}`;
-            }
-            
-            const res = await fetch(url);
-
-            if (res.ok) {
-                const { data, linkHeader } = await res.json();
-                const items = search ? data.items : data;
-                
-                if (!Array.isArray(items)) {
-                    throw new Error("Invalid data format received from API.");
-                }
-
-                setRepos(prev => pageNum === 1 ? items : [...prev, ...items]);
-                
-                if (search) {
-                     setHasMore(data.total_count > (pageNum * 30));
-                } else {
-                     setHasMore(linkHeader?.includes('rel="next"') || false);
-                }
-
-            } else {
-                const errorData = await res.json().catch(() => null);
-                setError(errorData?.message || `Failed to fetch repositories. Status: ${res.status}`);
-                setRepos([]);
-            }
-        } catch (error: any) {
-            console.error(error);
-            setError(error.message || "An unexpected network error occurred.");
-        } finally {
-            if (pageNum === 1) setLoading(false);
-            else setLoadingMore(false);
+    const fetchAllRepos = useCallback(async (pageNum = 1): Promise<Repository[]> => {
+        const res = await fetch(`/api/github/user/repos?sort=pushed&per_page=100&page=${pageNum}`);
+        if (!res.ok) {
+            const errorData = await res.json().catch(() => null);
+            throw new Error(errorData?.message || `Failed to fetch repositories. Status: ${res.status}`);
         }
-    }, [session]);
+        const { data, linkHeader } = await res.json();
+        if (!Array.isArray(data)) {
+            throw new Error("Invalid data format received from API.");
+        }
+        const hasNextPage = linkHeader?.includes('rel="next"');
+        if (hasNextPage) {
+            return data.concat(await fetchAllRepos(pageNum + 1));
+        }
+        return data;
+    }, []);
 
-     useEffect(() => {
-        const debouncedFetch = setTimeout(() => {
-            setPage(1); // Reset page to 1 for new search
-            fetchRepos(1, searchQuery);
-        }, 300); // 300ms debounce
-
-        return () => clearTimeout(debouncedFetch);
-    }, [searchQuery, fetchRepos]);
-
-    useEffect(() => {
-        if (!session) {
-            setLoading(false);
+    const filterRepos = useCallback(() => {
+        if (!searchQuery) {
+            setFilteredRepos(allRepos);
             return;
         }
-        
-        if (!searchQuery) { // Initial load
-            setPage(1);
-            fetchRepos(1, '');
-        }
-    }, [session, fetchRepos]);
-    
-    useEffect(() => {
-        const observer = new IntersectionObserver(
-            entries => {
-                if (entries[0].isIntersecting && hasMore && !loadingMore && !loading) {
-                    const nextPage = page + 1;
-                    setPage(nextPage);
-                    fetchRepos(nextPage, searchQuery);
-                }
-            },
-            { threshold: 1.0 }
+        const lowercasedQuery = searchQuery.toLowerCase();
+        const results = allRepos.filter(repo =>
+            repo.name.toLowerCase().includes(lowercasedQuery)
         );
+        setFilteredRepos(results);
+    }, [allRepos, searchQuery]);
 
-        if (sentinelRef.current) {
-            observer.observe(sentinelRef.current);
-        }
 
-        return () => {
-            if (sentinelRef.current) {
-                observer.unobserve(sentinelRef.current);
+    useEffect(() => {
+        const loadInitialData = async () => {
+            if (!session) return;
+            setLoading(true);
+            setError(null);
+            try {
+                const repos = await fetchAllRepos();
+                setAllRepos(repos);
+                setFilteredRepos(repos);
+            } catch (error: any) {
+                console.error(error);
+                setError(error.message || "An unexpected network error occurred.");
+                setAllRepos([]);
+                setFilteredRepos([]);
+            } finally {
+                setLoading(false);
+                isInitialLoad.current = false;
             }
         };
-    }, [hasMore, loadingMore, loading, page, fetchRepos, searchQuery]);
+        loadInitialData();
+    }, [session, fetchAllRepos]);
+    
+     useEffect(() => {
+        // Debounce search filtering
+        const handler = setTimeout(() => {
+            filterRepos();
+        }, 200);
+
+        return () => {
+            clearTimeout(handler);
+        };
+    }, [searchQuery, filterRepos]);
 
 
-    if (loading && page === 1) {
-        return (
-             <div className="flex flex-col h-svh bg-background">
-                <header className="flex items-center justify-between p-4 border-b h-16 shrink-0">
-                    <Logo />
-                    <GithubUI />
-                </header>
-                <main className="flex-1 flex items-center justify-center">
-                    <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-                </main>
-            </div>
-        )
+    if (isInitialLoad.current) {
+        return <RepoDashboardSkeleton />;
     }
 
     return (
@@ -186,14 +182,14 @@ const RepoDashboard = ({ session }: { session: Session | null }) => {
                     <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                     <Input
                         type="search"
-                        placeholder="Search repositories..."
+                        placeholder="Search your repositories..."
                         className="w-full pl-10"
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
                     />
                 </div>
                 <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                    {repos.map(repo => {
+                    {filteredRepos.map(repo => {
                         const isRepoLoading = loadingRepo === repo.full_name;
                         return (
                             <Card key={repo.id} className="flex flex-col">
@@ -216,6 +212,7 @@ const RepoDashboard = ({ session }: { session: Session | null }) => {
                                     <div className="flex items-center gap-1">
                                         <Eye className="h-3 w-3" /> {repo.watchers_count}
                                     </div>
+
                                 </CardContent>
                                 <CardFooter>
                                     <Button variant="secondary" size="sm" className="w-full" onClick={() => handleSelectRepo(repo)} disabled={isRepoLoading}>
@@ -231,12 +228,8 @@ const RepoDashboard = ({ session }: { session: Session | null }) => {
                         )
                     })}
                 </div>
-                
-                <div ref={sentinelRef} className="h-10 w-full flex items-center justify-center">
-                    {loadingMore && <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />}
-                </div>
 
-                {!error && repos.length === 0 && !loading && (
+                {!error && filteredRepos.length === 0 && !loading && (
                     <div className="py-16 text-center text-muted-foreground">
                         {searchQuery ? (
                             <p>No repositories found for "{searchQuery}".</p>

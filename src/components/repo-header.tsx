@@ -1,15 +1,51 @@
 
 "use client";
 
-import type { Repository } from "@/app/page";
+import { useState, useEffect } from 'react';
 import { Button } from "@/components/ui/button";
-import { GitFork, Star, Share2 } from "lucide-react";
+import { GitFork, Star, Share2, Loader2, AlertTriangle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import type { Repository } from '@/lib/types';
+import { Skeleton } from './ui/skeleton';
 
-export const RepoHeader = ({ repo }: { repo: Repository }) => {
+async function fetchRepoDetails(repoFullName: string): Promise<Repository | null> {
+    try {
+        const res = await fetch(`/api/github/repos/${repoFullName}`);
+        if (!res.ok) {
+            console.error(`Failed to fetch repository details for ${repoFullName}. Status: ${res.status}`);
+            return null;
+        }
+        const { data } = await res.json();
+        return data;
+    } catch (error) {
+        console.error("Failed to fetch full repo details", error);
+        return null;
+    }
+}
+
+
+export const RepoHeader = ({ repoFullName }: { repoFullName: string }) => {
     const { toast } = useToast();
+    const [repo, setRepo] = useState<Repository | null>(null);
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+        const loadRepo = async () => {
+            if (!repoFullName) {
+                setLoading(false);
+                return;
+            }
+            setLoading(true);
+            const details = await fetchRepoDetails(repoFullName);
+            setRepo(details);
+            setLoading(false);
+        }
+        loadRepo();
+    }, [repoFullName]);
+
 
     const handleShare = () => {
+        if (!repo) return;
         navigator.clipboard.writeText(repo.html_url);
         toast({
             title: "Copied to clipboard!",
@@ -25,6 +61,19 @@ export const RepoHeader = ({ repo }: { repo: Repository }) => {
             description: "You've starred this repository! (placeholder)",
         });
     };
+
+    if (loading) {
+        return <Skeleton className="w-64 h-8 rounded-md" />;
+    }
+    
+    if (!repo) {
+        return (
+            <div className="flex items-center gap-2 text-sm text-destructive">
+                <AlertTriangle className="h-4 w-4" />
+                <span>Failed to load repository details.</span>
+            </div>
+        );
+    }
 
     return (
         <div className="flex items-center gap-4">
