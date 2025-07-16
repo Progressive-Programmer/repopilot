@@ -22,7 +22,7 @@ export async function runCodeReview(input: GenerateCodeReviewInput): Promise<{ r
     console.warn(`Primary model failed, checking for overload: ${e.message}`);
     // If the primary model is overloaded, try the fallback.
     if (isOverloadedError(e)) {
-      console.log('Primary model overloaded, trying fallback...');
+      console.log('Primary model overloaded, trying fallback (gemini-pro)...');
       try {
         const result = await generateCodeReview({ ...input, model: GEMINI_PRO });
         return { review: result.review };
@@ -149,7 +149,7 @@ export async function runDiffReview(originalCode: string, modifiedCode: string, 
   } catch (e: any) {
     console.warn(`Primary model failed for diff review, checking for overload: ${e.message}`);
     if(isOverloadedError(e)) {
-      console.log('Primary model overloaded, trying fallback for diff review...');
+      console.log('Primary model overloaded, trying fallback (gemini-pro) for diff review...');
       try {
         const result = await generateDiffReview({ diff: diffText, language, model: GEMINI_PRO });
         return { review: result.review };
