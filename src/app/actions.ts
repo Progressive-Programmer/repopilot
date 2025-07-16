@@ -2,8 +2,13 @@
 
 import { generateCodeReview, generateDiffReview, type GenerateCodeReviewInput, type Suggestion } from '@/ai/flows/generate-code-review';
 import { diff_match_patch, DIFF_EQUAL, DIFF_INSERT, DIFF_DELETE, type Diff } from 'diff-match-patch';
+import { GEMINI_PRO, GEMINI_15_FLASH } from '@/ai/genkit';
 
 const CONTEXT_LINES = 3;
+
+function isOverloadedError(e: any): boolean {
+  return e.message?.includes('503') || e.message?.includes('overloaded');
+}
 
 export async function runCodeReview(input: GenerateCodeReviewInput): Promise<{ review?: Suggestion[]; error?: string }> {
   if (!input.code || !input.language) {
@@ -11,9 +16,23 @@ export async function runCodeReview(input: GenerateCodeReviewInput): Promise<{ r
   }
 
   try {
-    const result = await generateCodeReview(input);
+    const result = await generateCodeReview({ ...input, model: GEMINI_15_FLASH });
     return { review: result.review };
   } catch (e: any) {
+    console.warn(`Primary model failed, checking for overload: ${e.message}`);
+    // If the primary model is overloaded, try the fallback.
+    if (isOverloadedError(e)) {
+      console.log('Primary model overloaded, trying fallback...');
+      try {
+        const result = await generateCodeReview({ ...input, model: GEMINI_PRO });
+        return { review: result.review };
+      } catch (fallbackError: any) {
+        console.error('Fallback model also failed:', fallbackError);
+        const errorMessage = fallbackError.message || 'An unexpected error occurred while generating the code review. Please try again later.';
+        return { error: errorMessage };
+      }
+    }
+
     console.error(e);
     const errorMessage = e.message || 'An unexpected error occurred while generating the code review. Please try again later.';
     return { error: errorMessage };
@@ -22,87 +41,84 @@ export async function runCodeReview(input: GenerateCodeReviewInput): Promise<{ r
 
 function createUnifiedDiff(originalCode: string, modifiedCode: string, diffs: Diff[]): string {
     const originalLines = originalCode.split('\n');
-    const modifiedLines = modifiedCode.split('\n');
     let unifiedDiff = '';
     let originalLineNum = 0;
-    let modifiedLineNum = 0;
 
     let i = 0;
     while (i < diffs.length) {
-        const [op, text] = diffs[i];
+        const currentDiff = diffs[i];
 
-        if (op === DIFF_EQUAL) {
-            originalLineNum += text.split('\n').length - 1;
-            modifiedLineNum += text.split('\n').length - 1;
-            i++;
-            continue;
-        }
-
-        // Find a block of changes
-        let startBlock = i;
-        while (i < diffs.length && diffs[i][0] !== DIFF_EQUAL) {
-            i++;
-        }
-        let endBlock = i;
-
-        // Context before the change
-        const contextBeforeStart = Math.max(0, originalLineNum - CONTEXT_LINES);
-        let hunkHeaderOriginalStart = contextBeforeStart + 1;
-        
-        let modifiedContextStartLine = 0;
-        let tempOriginalLine = 0;
-        for(let j=0; j<startBlock; j++) {
-            if (diffs[j][0] === DIFF_EQUAL) modifiedContextStartLine += diffs[j][1].split('\n').length - 1;
-            if (diffs[j][0] === DIFF_INSERT) modifiedContextStartLine += diffs[j][1].split('\n').length - 1;
-            if (diffs[j][0] === DIFF_DELETE) modifiedContextStartLine -= diffs[j][1].split('\n').length - 1;
-        }
-        
-        let hunkHeaderModifiedStart = originalLineNum + modifiedContextStartLine - CONTEXT_LINES + 1;
-        if(hunkHeaderModifiedStart < 1) hunkHeaderModifiedStart = 1;
-
-
-        let hunk = '';
-        for (let j = contextBeforeStart; j < originalLineNum; j++) {
-            hunk += ` ${originalLines[j]}\n`;
-        }
-
-        let originalHunkSize = originalLineNum - contextBeforeStart;
-        let modifiedHunkSize = originalHunkSize;
-
-
-        for (let j = startBlock; j < endBlock; j++) {
-            const [op, text] = diffs[j];
-            const lines = text.split('\n');
-            if (op === DIFF_INSERT) {
-                lines.forEach(line => {
-                    if (line) hunk += `+${line}\n`;
-                });
-                modifiedHunkSize += lines.length - 1;
-            } else if (op === DIFF_DELETE) {
-                 lines.forEach(line => {
-                    if (line) hunk += `-${line}\n`;
-                });
-                originalHunkSize += lines.length - 1;
+        // Find a block of changes (non-equal parts)
+        if (currentDiff[0] !== DIFF_EQUAL) {
+            let startBlock = i;
+            while (i < diffs.length && diffs[i][0] !== DIFF_EQUAL) {
+                i++;
             }
+            let endBlock = i;
+
+            // Calculate hunk start lines
+            const contextBeforeStartLine = Math.max(0, originalLineNum - CONTEXT_LINES);
+            let hunkHeaderOriginalStart = contextBeforeStartLine + 1;
+
+            let modifiedLineCursor = originalLineNum + 1;
+            for (let j = 0; j < startBlock; j++) {
+                if (diffs[j][0] === DIFF_INSERT) modifiedLineCursor += diffs[j][1].split('\n').length - 1;
+                if (diffs[j][0] === DIFF_DELETE) modifiedLineCursor -= diffs[j][1].split('\n').length - 1;
+            }
+            let hunkHeaderModifiedStart = Math.max(1, modifiedLineCursor - CONTEXT_LINES);
+
+            let hunk = '';
+            let originalHunkSize = 0;
+            let modifiedHunkSize = 0;
+
+            // Add context before
+            for (let j = contextBeforeStartLine; j < originalLineNum; j++) {
+                hunk += ` ${originalLines[j]}\n`;
+                originalHunkSize++;
+                modifiedHunkSize++;
+            }
+
+            // Add changes
+            for (let j = startBlock; j < endBlock; j++) {
+                const [op, text] = diffs[j];
+                const lines = text.split('\n');
+                lines.forEach((line, index) => {
+                    // Don't add the last empty line from a split
+                    if (index === lines.length - 1 && line === '') return;
+
+                    if (op === DIFF_INSERT) {
+                        hunk += `+${line}\n`;
+                        modifiedHunkSize++;
+                    } else if (op === DIFF_DELETE) {
+                        hunk += `-${line}\n`;
+                        originalHunkSize++;
+                    }
+                });
+            }
+
+            // Add context after
+            const nextEqualBlock = diffs[endBlock];
+            if (nextEqualBlock) {
+                const contextLines = nextEqualBlock[1].split('\n');
+                const contextToAdd = contextLines.slice(0, CONTEXT_LINES);
+                contextToAdd.forEach(line => {
+                    hunk += ` ${line}\n`;
+                    originalHunkSize++;
+                    modifiedHunkSize++;
+                });
+            }
+            
+            // Finalize hunk header and add to diff
+            unifiedDiff += `@@ -${hunkHeaderOriginalStart},${originalHunkSize} +${hunkHeaderModifiedStart},${modifiedHunkSize} @@\n`;
+            unifiedDiff += hunk;
+        }
+
+        // Move originalLineNum cursor
+        if (currentDiff[0] === DIFF_EQUAL || currentDiff[0] === DIFF_DELETE) {
+             originalLineNum += currentDiff[1].split('\n').length - 1;
         }
         
-        originalLineNum += (diffs[startBlock][1].split('\n').length - 1);
-
-
-        // Context after the change
-        const nextEqualBlock = diffs[endBlock];
-        if (nextEqualBlock) {
-            const contextLines = nextEqualBlock[1].split('\n').slice(0, CONTEXT_LINES);
-            contextLines.forEach(line => {
-                if (line) hunk += ` ${line}\n`;
-            });
-            originalHunkSize += contextLines.length - (contextLines.length > 0 ? 1 : 0);
-            modifiedHunkSize += contextLines.length - (contextLines.length > 0 ? 1 : 0);
-        }
-
-        unifiedDiff += `@@ -${hunkHeaderOriginalStart},${originalHunkSize} +${hunkHeaderModifiedStart},${modifiedHunkSize} @@\n`;
-        unifiedDiff += hunk;
-
+        i++;
     }
     return unifiedDiff;
 }
@@ -117,20 +133,33 @@ export async function runDiffReview(originalCode: string, modifiedCode: string, 
       return { review: [] };
   }
 
-  try {
-    const dmp = new diff_match_patch();
-    const diffs = dmp.diff_main(originalCode, modifiedCode);
-    dmp.diff_cleanupSemantic(diffs);
-    
-    const diffText = createUnifiedDiff(originalCode, modifiedCode, diffs);
+  const dmp = new diff_match_patch();
+  const diffs = dmp.diff_main(originalCode, modifiedCode);
+  dmp.diff_cleanupSemantic(diffs);
+  
+  const diffText = createUnifiedDiff(originalCode, modifiedCode, diffs);
 
-    if (!diffText.trim().length) {
-      return { review: [] };
-    }
-    
-    const result = await generateDiffReview({ diff: diffText, language });
+  if (!diffText.trim().length) {
+    return { review: [] };
+  }
+  
+  try {
+    const result = await generateDiffReview({ diff: diffText, language, model: GEMINI_15_FLASH });
     return { review: result.review };
   } catch (e: any) {
+    console.warn(`Primary model failed for diff review, checking for overload: ${e.message}`);
+    if(isOverloadedError(e)) {
+      console.log('Primary model overloaded, trying fallback for diff review...');
+      try {
+        const result = await generateDiffReview({ diff: diffText, language, model: GEMINI_PRO });
+        return { review: result.review };
+      } catch (fallbackError: any) {
+        console.error('Fallback model also failed for diff review:', fallbackError);
+        const errorMessage = fallbackError.message || 'An unexpected error occurred while generating the code review. Please try again later.';
+        return { error: errorMessage };
+      }
+    }
+    
     console.error(e);
     const errorMessage = e.message || 'An unexpected error occurred while generating the code review. Please try again later.';
     return { error: errorMessage };

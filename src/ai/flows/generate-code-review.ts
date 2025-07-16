@@ -12,7 +12,7 @@
 
 import {ai} from '@/ai/genkit';
 import {z} from 'genkit';
-import { diff_match_patch } from 'diff-match-patch';
+import type {GenerationModel} from 'genkit';
 
 const SuggestionSchema = z.object({
   title: z.string().describe('A short, descriptive title for the suggestion.'),
@@ -27,12 +27,14 @@ export type Suggestion = z.infer<typeof SuggestionSchema>;
 const GenerateCodeReviewInputSchema = z.object({
   code: z.string().describe('The code to be reviewed.'),
   language: z.string().describe('The programming language of the code.'),
+  model: z.custom<GenerationModel>().optional(),
 });
 export type GenerateCodeReviewInput = z.infer<typeof GenerateCodeReviewInputSchema>;
 
 const GenerateDiffReviewInputSchema = z.object({
   diff: z.string().describe('The code diff to be reviewed in unified diff format.'),
   language: z.string().describe('The programming language of the code.'),
+  model: z.custom<GenerationModel>().optional(),
 });
 export type GenerateDiffReviewInput = z.infer<typeof GenerateDiffReviewInputSchema>;
 
@@ -51,7 +53,7 @@ export async function generateDiffReview(input: GenerateDiffReviewInput): Promis
 
 const fullReviewPrompt = ai.definePrompt({
   name: 'generateCodeReviewPrompt',
-  input: {schema: GenerateCodeReviewInputSchema},
+  input: {schema: z.object({ code: z.string(), language: z.string() })},
   output: {schema: GenerateCodeReviewOutputSchema, format: 'json'},
   prompt: `You are an expert code reviewer acting as an automated linter. Your task is to provide a thorough code review with actionable advice and suggestions for improvements.
 
@@ -66,7 +68,7 @@ For each issue you find, provide a clear suggestion. Each suggestion must includ
 2.  A detailed description explaining the issue and why your suggestion is better.
 3.  A severity level (Critical, Warning, Improvement, Info).
 4.  The exact line range (e.g., "10-15") the issue pertains to in the original code.
-5.  If applicable, provide a concrete 'suggestion' with the exact code that should replace the problematic lines. The suggested code should be perfectly formatted and include the original indentation to ensure it can be applied directly.
+5.  If applicable, provide a concrete 'suggestion' with the exact code that should be replaced. The suggested code should be perfectly formatted and include the original indentation to ensure it can be applied directly.
 
 Return your findings as a structured list of suggestions in JSON format.
 
@@ -81,7 +83,7 @@ Code:
 
 const diffReviewPrompt = ai.definePrompt({
   name: 'generateDiffReviewPrompt',
-  input: { schema: GenerateDiffReviewInputSchema },
+  input: { schema: z.object({ diff: z.string(), language: z.string() })},
   output: { schema: GenerateCodeReviewOutputSchema, format: 'json' },
   prompt: `You are an expert code reviewer acting as an automated linter. Your task is to provide a thorough code review based on a code diff in the unified diff format. Focus your analysis ONLY on the changes presented in the diff (lines starting with '+' or '-'). Use the surrounding unchanged lines for context.
 
@@ -116,8 +118,8 @@ const generateCodeReviewFlow = ai.defineFlow(
     inputSchema: GenerateCodeReviewInputSchema,
     outputSchema: GenerateCodeReviewOutputSchema,
   },
-  async input => {
-    const {output} = await fullReviewPrompt(input);
+  async ({ model, ...input }) => {
+    const {output} = await fullReviewPrompt(input, { model });
     return output!;
   }
 );
@@ -128,8 +130,8 @@ const generateDiffReviewFlow = ai.defineFlow(
     inputSchema: GenerateDiffReviewInputSchema,
     outputSchema: GenerateCodeReviewOutputSchema,
   },
-  async input => {
-    const { output } = await diffReviewPrompt(input);
+  async ({ model, ...input }) => {
+    const { output } = await diffReviewPrompt(input, { model });
     return output!;
   }
 );
