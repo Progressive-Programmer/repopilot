@@ -451,3 +451,5 @@ export function EditorView({ repo, selectedFile, onCommitSuccess }: EditorViewPr
     </ResizablePanelGroup>
   );
 }
+
+    
