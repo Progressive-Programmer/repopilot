@@ -3,52 +3,15 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useSession, signIn, type Session } from "next-auth/react";
-import { Github, GitBranch, Loader2, AlertTriangle, Code, ArrowLeft, Search, Star, GitFork, Eye } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { Github, GitBranch, Loader2, AlertTriangle, Code, Search, Star, GitFork, Eye } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { GithubUI } from '@/components/github-ui';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { RepoView } from '@/app/repo-view';
 import { Input } from '@/components/ui/input';
-import { RepoHeader } from '@/components/repo-header';
+import type { Repository } from '@/lib/types';
 
-
-export interface Repository {
-  id: number;
-  name: string;
-  full_name: string;
-  clone_url: string;
-  description: string | null;
-  owner: {
-    login: string;
-  };
-  default_branch: string;
-  stargazers_count: number;
-  forks_count: number;
-  watchers_count: number;
-  html_url: string;
-}
-
-export interface File {
-  name: string;
-  path: string;
-  type: 'file';
-  content: string;
-  language: string;
-  url: string;
-  sha: string;
-}
-
-export interface Folder {
-  name: string;
-  path: string;
-  type: 'folder';
-  children: FileSystemNode[];
-  url: string;
-  sha: string;
-}
-
-export type FileSystemNode = File | Folder;
 
 const Logo = () => (
     <div className="flex items-center gap-2">
@@ -280,29 +243,11 @@ const RepoDashboard = ({ session, onSelectRepo }: { session: Session | null, onS
 
 export default function Home() {
     const { data: session, status } = useSession();
-    const [selectedRepo, setSelectedRepo] = useState<Repository | null>(null);
-    const [repoDetails, setRepoDetails] = useState<Repository | null>(null);
+    const router = useRouter();
 
-
-    const handleBackToDashboard = useCallback(() => {
-        setSelectedRepo(null);
-        setRepoDetails(null);
-    }, []);
-
-    const handleSelectRepo = useCallback(async (repo: Repository) => {
-        setSelectedRepo(repo);
-        try {
-            const res = await fetch(`/api/github/repos/${repo.full_name}`);
-             if (!res.ok) {
-                throw new Error("Failed to fetch repository details.");
-            }
-            const { data } = await res.json();
-            setRepoDetails(data);
-        } catch (error) {
-            console.error("Failed to fetch full repo details", error);
-            setRepoDetails(repo); // Fallback to basic repo info
-        }
-    }, []);
+    const handleSelectRepo = useCallback((repo: Repository) => {
+        router.push(`/view/${repo.full_name}`);
+    }, [router]);
 
     if (status === "loading") {
         return (
@@ -314,29 +259,6 @@ export default function Home() {
     
     if (status === "unauthenticated" || !session) {
         return <UnauthenticatedView />;
-    }
-
-    if (selectedRepo) {
-        return (
-            <div className="flex flex-col h-svh bg-background">
-                <header className="flex items-center justify-between px-4 border-b h-16 shrink-0">
-                    <div className="flex items-center gap-4">
-                        <Button variant="outline" size="sm" onClick={handleBackToDashboard}>
-                            <ArrowLeft className="mr-2 h-4 w-4" />
-                            Back
-                        </Button>
-                        <div className='hidden md:block'>
-                         <Logo />
-                        </div>
-                    </div>
-                    {repoDetails ? <RepoHeader repo={repoDetails} /> : <div className="w-64 h-8 rounded-md bg-muted animate-pulse" />}
-                    <GithubUI />
-                </header>
-                <main className="flex-1 overflow-hidden">
-                    <RepoView repo={selectedRepo} />
-                </main>
-            </div>
-        );
     }
 
     return <RepoDashboard session={session} onSelectRepo={handleSelectRepo} />;

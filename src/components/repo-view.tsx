@@ -1,8 +1,9 @@
 
 "use client";
 
-import { useState, useEffect, useCallback } from 'react';
-import type { Repository, FileSystemNode, File as FileType, Folder } from './page';
+import { useState, useEffect, useCallback, useTransition } from 'react';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import type { Repository, FileSystemNode, File as FileType } from '@/lib/types';
 import { RepoExplorer } from '@/components/repo-explorer';
 import { EditorView } from '@/components/editor-view';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -14,7 +15,6 @@ import {
 } from "@/components/ui/resizable";
 import { getLanguageFromExtension } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
-
 
 // Helper to sort files and folders
 const sortNodes = (nodes: FileSystemNode[]) => {
@@ -31,10 +31,60 @@ export function RepoView({ repo }: { repo: Repository }) {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const { toast } = useToast();
+    
+    const router = useRouter();
+    const pathname = usePathname();
+    const searchParams = useSearchParams();
+    const [isPending, startTransition] = useTransition();
 
-    // Fetch initial root-level files
+    const updateUrlForFile = (filePath: string | null) => {
+        const current = new URLSearchParams(Array.from(searchParams.entries()));
+        if (filePath) {
+            current.set('file', filePath);
+        } else {
+            current.delete('file');
+        }
+        const search = current.toString();
+        const query = search ? `?${search}` : '';
+        startTransition(() => {
+            router.push(`${pathname}${query}`);
+        });
+    };
+
+    const fetchFileContent = useCallback(async (file: FileType, shouldUpdateUrl: boolean) => {
+        if (selectedFile?.path === file.path && selectedFile.content) {
+            if (shouldUpdateUrl) updateUrlForFile(file.path);
+            return;
+        }
+
+        setSelectedFile({ ...file, content: '' });
+        if (shouldUpdateUrl) updateUrlForFile(file.path);
+
+        try {
+            const res = await fetch(`/api/github/repos/${repo.full_name}/contents/${file.path}`);
+            if (!res.ok) {
+                const errorData = await res.json().catch(() => null);
+                throw new Error(errorData?.message || 'Failed to fetch file content.');
+            }
+            const { data } = await res.json();
+            if (data.encoding === 'base64' && data.content) {
+                const content = atob(data.content);
+                setSelectedFile({ ...file, content, language: file.language || 'plaintext' });
+            } else {
+                setSelectedFile({ ...file, content: 'File content is not available or file is empty.' });
+            }
+        } catch (err: any) {
+            console.error(err);
+            toast({ variant: 'destructive', title: "Error loading file", description: err.message });
+            setSelectedFile(null);
+            updateUrlForFile(null); // Clear from URL if fetch fails
+        }
+    }, [repo.full_name, selectedFile, toast, pathname, searchParams, router]);
+
+
+    // Effect to load file from URL on initial mount
     useEffect(() => {
-        const fetchRootFiles = async () => {
+        const fetchRootAndLoadFile = async () => {
             setLoading(true);
             setError(null);
             setFileTree([]);
@@ -59,7 +109,25 @@ export function RepoView({ repo }: { repo: Repository }) {
                     content: item.type === 'file' ? '' : undefined,
                     language: item.type === 'file' ? getLanguageFromExtension(item.name.split('.').pop() || '') : undefined,
                 }));
-                setFileTree(sortNodes(nodes));
+                const sortedNodes = sortNodes(nodes);
+                setFileTree(sortedNodes);
+
+                const fileFromUrl = searchParams.get('file');
+                if (fileFromUrl) {
+                    // We need to find the file object in the tree to get all its properties (like sha)
+                    const findFileInNodes = (path: string, nodeList: FileSystemNode[]): FileType | null => {
+                        for (const node of nodeList) {
+                            if (node.type === 'file' && node.path === path) return node;
+                        }
+                        return null; // A more robust solution would search subdirectories
+                    };
+
+                    const fileToLoad = findFileInNodes(fileFromUrl, sortedNodes);
+                    if (fileToLoad) {
+                         await fetchFileContent(fileToLoad, false); // don't update URL, it's already correct
+                    }
+                }
+
             } catch (err: any) {
                 setError(err.message || 'An unexpected error occurred.');
             } finally {
@@ -67,36 +135,12 @@ export function RepoView({ repo }: { repo: Repository }) {
             }
         };
 
-        fetchRootFiles();
-    }, [repo]);
-    
-    const handleSelectFile = useCallback(async (file: FileType) => {
-        // Avoid refetching if content is already loaded
-        if (selectedFile?.path === file.path && selectedFile.content) {
-            return;
-        }
+        fetchRootAndLoadFile();
+    }, [repo.full_name]); // Only on repo change
 
-        // Show loader immediately
-        setSelectedFile({ ...file, content: '' });
-
-        try {
-            const res = await fetch(`/api/github/repos/${repo.full_name}/contents/${file.path}`);
-            if (!res.ok) {
-                const errorData = await res.json().catch(() => null);
-                throw new Error(errorData?.message || 'Failed to fetch file content.');
-            }
-            const { data } = await res.json();
-            if (data.encoding === 'base64' && data.content) {
-                const content = atob(data.content);
-                setSelectedFile({ ...file, content, language: file.language || 'plaintext' });
-            } else {
-                 setSelectedFile({ ...file, content: 'File content is not available or file is empty.' });
-            }
-        } catch (err: any) {
-            console.error(err);
-            setSelectedFile({ ...file, content: `Error loading file content: ${err.message}` });
-        }
-    }, [repo.full_name, selectedFile]);
+    const handleSelectFile = (file: FileType) => {
+        fetchFileContent(file, true);
+    };
 
     const handleFolderClick = useCallback(async (folderPath: string) => {
         try {
@@ -105,7 +149,6 @@ export function RepoView({ repo }: { repo: Repository }) {
             const { data } = await res.json();
              if (!Array.isArray(data)) {
                 console.error("Folder content is not an array:", data);
-                // Optionally set an error state for this specific folder
                 return;
             }
             const children: FileSystemNode[] = data.map((item: any) => ({
@@ -119,15 +162,12 @@ export function RepoView({ repo }: { repo: Repository }) {
                 language: item.type === 'file' ? getLanguageFromExtension(item.name.split('.').pop() || '') : undefined,
             }));
 
-            // This function recursively finds the folder and updates its children
             const updateTree = (nodes: FileSystemNode[]): FileSystemNode[] => {
                 return nodes.map(node => {
                     if (node.type === 'folder') {
                         if (node.path === folderPath) {
-                            // Found the folder, update its children
                             return { ...node, children: sortNodes(children) };
                         } else if (folderPath.startsWith(node.path + '/')) {
-                            // The target folder is inside this one, recurse
                             return { ...node, children: updateTree(node.children) };
                         }
                     }
@@ -139,7 +179,6 @@ export function RepoView({ repo }: { repo: Repository }) {
 
         } catch (err) {
             console.error("Failed to load folder contents:", err);
-            // Optionally set an error state for this specific folder
         }
     }, [repo.full_name]);
 
