@@ -71,7 +71,7 @@ const SeverityBadge = ({ severity }: { severity: Suggestion['severity'] }) => {
         <Badge
             variant="outline"
             className={cn(
-                'text-xs',
+                'text-xs shrink-0',
                 severity === 'Critical' && 'border-red-500/50 text-red-500',
                 severity === 'Warning' && 'border-yellow-500/50 text-yellow-500',
                 severity === 'Improvement' && 'border-blue-500/50 text-blue-500'
@@ -172,10 +172,10 @@ const ReviewPanel = ({ file, editorRef }: { file: FileType, editorRef: React.Ref
               <Accordion type="multiple" className="w-full space-y-2">
                 {review.map((suggestion, index) => (
                     <AccordionItem key={index} value={`item-${index}`} className="bg-card border rounded-md">
-                       <AccordionTrigger className="text-sm text-left hover:no-underline px-3 py-3">
-                           <div className="flex items-center gap-3 w-full">
+                       <AccordionTrigger className="text-sm text-left hover:no-underline px-3 py-3 w-full">
+                           <div className="flex items-start gap-3 w-full">
                                 <SeverityIcon severity={suggestion.severity} />
-                                <span className="flex-1 font-medium text-left">{suggestion.title}</span>
+                                <span className="flex-1 font-medium text-left break-words">{suggestion.title}</span>
                                 <SeverityBadge severity={suggestion.severity} />
                            </div>
                        </AccordionTrigger>
