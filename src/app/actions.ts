@@ -1,7 +1,9 @@
 'use server';
 
-import { generateCodeReview, generateDiffReview, type GenerateCodeReviewInput, type GenerateDiffReviewInput, type Suggestion } from '@/ai/flows/generate-code-review';
-import { diff_match_patch, DIFF_EQUAL, DIFF_INSERT, DIFF_DELETE } from 'diff-match-patch';
+import { generateCodeReview, generateDiffReview, type GenerateCodeReviewInput, type Suggestion } from '@/ai/flows/generate-code-review';
+import { diff_match_patch, DIFF_EQUAL, DIFF_INSERT, DIFF_DELETE, type Diff } from 'diff-match-patch';
+
+const CONTEXT_LINES = 3;
 
 export async function runCodeReview(input: GenerateCodeReviewInput): Promise<{ review?: Suggestion[]; error?: string }> {
   if (!input.code || !input.language) {
@@ -18,38 +20,110 @@ export async function runCodeReview(input: GenerateCodeReviewInput): Promise<{ r
   }
 }
 
+function createUnifiedDiff(originalCode: string, modifiedCode: string, diffs: Diff[]): string {
+    const originalLines = originalCode.split('\n');
+    const modifiedLines = modifiedCode.split('\n');
+    let unifiedDiff = '';
+    let originalLineNum = 0;
+    let modifiedLineNum = 0;
+
+    let i = 0;
+    while (i < diffs.length) {
+        const [op, text] = diffs[i];
+
+        if (op === DIFF_EQUAL) {
+            originalLineNum += text.split('\n').length - 1;
+            modifiedLineNum += text.split('\n').length - 1;
+            i++;
+            continue;
+        }
+
+        // Find a block of changes
+        let startBlock = i;
+        while (i < diffs.length && diffs[i][0] !== DIFF_EQUAL) {
+            i++;
+        }
+        let endBlock = i;
+
+        // Context before the change
+        const contextBeforeStart = Math.max(0, originalLineNum - CONTEXT_LINES);
+        let hunkHeaderOriginalStart = contextBeforeStart + 1;
+        
+        let modifiedContextStartLine = 0;
+        let tempOriginalLine = 0;
+        for(let j=0; j<startBlock; j++) {
+            if (diffs[j][0] === DIFF_EQUAL) modifiedContextStartLine += diffs[j][1].split('\n').length - 1;
+            if (diffs[j][0] === DIFF_INSERT) modifiedContextStartLine += diffs[j][1].split('\n').length - 1;
+            if (diffs[j][0] === DIFF_DELETE) modifiedContextStartLine -= diffs[j][1].split('\n').length - 1;
+        }
+        
+        let hunkHeaderModifiedStart = originalLineNum + modifiedContextStartLine - CONTEXT_LINES + 1;
+        if(hunkHeaderModifiedStart < 1) hunkHeaderModifiedStart = 1;
+
+
+        let hunk = '';
+        for (let j = contextBeforeStart; j < originalLineNum; j++) {
+            hunk += ` ${originalLines[j]}\n`;
+        }
+
+        let originalHunkSize = originalLineNum - contextBeforeStart;
+        let modifiedHunkSize = originalHunkSize;
+
+
+        for (let j = startBlock; j < endBlock; j++) {
+            const [op, text] = diffs[j];
+            const lines = text.split('\n');
+            if (op === DIFF_INSERT) {
+                lines.forEach(line => {
+                    if (line) hunk += `+${line}\n`;
+                });
+                modifiedHunkSize += lines.length - 1;
+            } else if (op === DIFF_DELETE) {
+                 lines.forEach(line => {
+                    if (line) hunk += `-${line}\n`;
+                });
+                originalHunkSize += lines.length - 1;
+            }
+        }
+        
+        originalLineNum += (diffs[startBlock][1].split('\n').length - 1);
+
+
+        // Context after the change
+        const nextEqualBlock = diffs[endBlock];
+        if (nextEqualBlock) {
+            const contextLines = nextEqualBlock[1].split('\n').slice(0, CONTEXT_LINES);
+            contextLines.forEach(line => {
+                if (line) hunk += ` ${line}\n`;
+            });
+            originalHunkSize += contextLines.length - (contextLines.length > 0 ? 1 : 0);
+            modifiedHunkSize += contextLines.length - (contextLines.length > 0 ? 1 : 0);
+        }
+
+        unifiedDiff += `@@ -${hunkHeaderOriginalStart},${originalHunkSize} +${hunkHeaderModifiedStart},${modifiedHunkSize} @@\n`;
+        unifiedDiff += hunk;
+
+    }
+    return unifiedDiff;
+}
+
+
 export async function runDiffReview(originalCode: string, modifiedCode: string, language: string): Promise<{ review?: Suggestion[]; error?: string }> {
   if (!language) {
     return { error: 'Language is required to generate a review.' };
+  }
+  
+  if (originalCode === modifiedCode) {
+      return { review: [] };
   }
 
   try {
     const dmp = new diff_match_patch();
     const diffs = dmp.diff_main(originalCode, modifiedCode);
     dmp.diff_cleanupSemantic(diffs);
-
-    let diffText = '';
-    let originalLine = 1;
-    let modifiedLine = 1;
-
-    for (const [op, text] of diffs) {
-      const lines = text.split('\n');
-      const lineCount = lines.length - 1;
-
-      if (op === DIFF_EQUAL) {
-        // No prefix for equal lines
-        originalLine += lineCount;
-        modifiedLine += lineCount;
-      } else if (op === DIFF_DELETE) {
-        diffText += text.split('\n').map(l => l ? `- ${l}` : '-').join('\n');
-        originalLine += lineCount;
-      } else if (op === DIFF_INSERT) {
-        diffText += text.split('\n').map(l => l ? `+ ${l}` : '+').join('\n');
-        modifiedLine += lineCount;
-      }
-    }
     
-    // If there's no actual difference, don't run the review.
+    const diffText = createUnifiedDiff(originalCode, modifiedCode, diffs);
+
     if (!diffText.trim().length) {
       return { review: [] };
     }
