@@ -16,7 +16,7 @@ import { Github, LifeBuoy, LogOut, Settings, User, LogIn } from "lucide-react";
 import { ThemeToggle } from "./theme-toggle";
 import Link from 'next/link';
 
-export function GithubUI() {
+export function GithubUI({ repoFullName }: { repoFullName?: string }) {
   const { data: session, status } = useSession();
 
   if (status === "unauthenticated") {
@@ -31,6 +31,9 @@ export function GithubUI() {
   if (status === "authenticated" && session?.user) {
     const githubUsername = (session as any).user?.name;
     const githubProfileUrl = `https://github.com/${githubUsername}`;
+    const supportUrl = repoFullName 
+        ? `https://github.com/${repoFullName}/issues`
+        : `https://github.com/invertase/repopilot/issues`;
 
     return (
       <div className="flex items-center gap-4">
@@ -73,7 +76,7 @@ export function GithubUI() {
               </Link>
             </DropdownMenuItem>
             <DropdownMenuItem asChild>
-              <a href="https://github.com/invertase/repopilot/issues" target="_blank" rel="noopener noreferrer">
+              <a href={supportUrl} target="_blank" rel="noopener noreferrer">
                 <LifeBuoy className="mr-2 h-4 w-4" />
                 <span>Support</span>
               </a>

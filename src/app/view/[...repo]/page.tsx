@@ -65,7 +65,7 @@ export default function RepoPage({ params }: { params: { repo: string[] } }) {
                 <Suspense fallback={<Skeleton className="w-64 h-8 rounded-md" />}>
                    <RepoHeader repoFullName={repoFullName} />
                 </Suspense>
-                <GithubUI />
+                <GithubUI repoFullName={repoFullName} />
             </header>
             <main className="flex-1 overflow-hidden">
                 <Suspense fallback={<RepoPageSkeleton />}>
